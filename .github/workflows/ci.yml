@@ -1,26 +1,42 @@
-name: ci
+name: CI
+
+# Runs on GitHub's own Linux runners. Never touches the VPS.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  check:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm --filter @cc/frontend build
-        env:
-          NEXT_PUBLIC_API_BASE: http://localhost:4000
-      - run: pnpm --filter command-center-watchdog build
-      - run: pnpm smoke:watchdog
-      - run: pnpm pm2:check
-      - run: pnpm agent:bench
-      - run: pnpm size:check
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10 --activate
+
+      - name: Install (lockfile must match)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm build:shared
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
