@@ -1,0 +1,58 @@
+name: Deploy backend
+
+# Deploys the Command Center backend to the Windows VPS.
+# Flow: tests on GitHub's Linux runner -> deploy on the self-hosted runner on the VPS.
+# The deploy job only ever runs for pushes to main (or a manual run on main).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'scripts/deploy.ps1'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time. A newer push waits instead of cancelling a running deploy.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10 --activate
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:shared
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, windows, command-center]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to this server
+        shell: powershell
+        run: ./scripts/deploy.ps1 -Sha "${{ github.sha }}"
