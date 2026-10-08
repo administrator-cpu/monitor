@@ -1,0 +1,21 @@
+{
+  "name": "command-center-watchdog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent watchdog: emails when the Command Center backend is unreachable. Runs on Render; shares no code with the backend.",
+  "engines": { "node": ">=20" },
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "smoke": "npm run build && node scripts/smoke.mjs",
+    "fake-target": "node tools/fake-target.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

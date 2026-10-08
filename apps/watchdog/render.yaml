@@ -1,0 +1,24 @@
+# Render Blueprint for the watchdog. Free plan: the service sleeps when idle and is woken by the
+# cron-job.org ping every 5 minutes.
+services:
+  - type: web
+    name: command-center-watchdog
+    runtime: node
+    plan: free
+    rootDir: apps/watchdog
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TARGET_URL        # https://<your backend>/health
+        sync: false
+      - key: CRON_TOKEN        # 32+ random characters; the same value goes in the cron-job.org header
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_FROM
+        sync: false
+      - key: ALERT_TO          # comma separated, at most 10
+        sync: false

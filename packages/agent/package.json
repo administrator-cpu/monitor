@@ -1,0 +1,27 @@
+{
+  "name": "@cc/agent",
+  "version": "0.1.0",
+  "description": "Optional in-app agent for the Command Center: event-loop lag, request latency, sockets and active users (counts only).",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "bench": "pnpm build && node bench/overhead.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@cc/shared": "workspace:*",
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

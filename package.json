@@ -1,0 +1,28 @@
+{
+  "name": "command-center",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted command center: monitoring dashboard for a Windows VPS and its MERN services",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:shared": "pnpm --filter @cc/shared build",
+    "dev:backend": "pnpm --filter @cc/shared build && pnpm --filter @cc/backend dev",
+    "dev:frontend": "pnpm --filter @cc/shared build && pnpm --filter @cc/frontend dev",
+    "build": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/backend build && pnpm --filter @cc/frontend build && pnpm --filter command-center-watchdog build",
+    "typecheck": "pnpm --filter @cc/shared build && pnpm -r typecheck",
+    "test": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/agent test && pnpm --filter @cc/backend test && pnpm --filter command-center-watchdog test",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,css,yml}\"",
+    "smoke:watchdog": "pnpm --filter command-center-watchdog smoke",
+    "pm2:check": "pnpm --filter @cc/backend pm2:check",
+    "mongo:check": "pnpm --filter @cc/backend mongo:check",
+    "size:check": "pnpm --filter @cc/backend size:check",
+    "agent:bench": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent bench",
+    "demo": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/backend demo"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.9"
+  }
+}
