@@ -10,7 +10,7 @@ if (!parentPort) throw new Error('worker.ts must run as a worker thread');
 const port = parentPort;
 const src = new InProcPm2Source();
 
-type Request = { id: number; op: 'connect' | 'list' | 'bus_start' | 'bus_stop' | 'dispose' };
+type Request = { id: number; op: 'connect' | 'list' | 'act' | 'bus_start' | 'bus_stop' | 'dispose'; action?: 'restart' | 'stop'; pmId?: number };
 
 port.on('message', async (m: Request) => {
   try {
@@ -21,6 +21,10 @@ port.on('message', async (m: Request) => {
         break;
       case 'list':
         result = await src.list();
+        break;
+      case 'act':
+        if ((m.action !== 'restart' && m.action !== 'stop') || typeof m.pmId !== 'number') throw new Error('Invalid action');
+        await src.act(m.action, m.pmId);
         break;
       case 'bus_start':
         await src.startBus({

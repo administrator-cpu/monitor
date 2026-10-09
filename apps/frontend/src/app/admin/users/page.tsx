@@ -162,7 +162,7 @@ function UserRow({
   say: (m: string, isError?: boolean) => void;
 }) {
   const [mode, setMode] = useState<'view' | 'edit' | 'reset'>('view');
-  const [edit, setEdit] = useState({ displayName: u.displayName, email: u.email, role: u.role });
+  const [edit, setEdit] = useState({ displayName: u.displayName, email: u.email, role: u.role, canOperate: u.role === 'admin' ? false : u.canOperate });
   const [pw, setPw] = useState('');
   const isSelf = u.id === selfId;
 
@@ -187,6 +187,7 @@ function UserRow({
         <td>{u.email}</td>
         <td>
           <span className="tag">{u.role}</span>{' '}
+          {u.role === 'engineer' && u.canOperate && <span className="tag ok">can operate</span>}{' '}
           {!u.isActive ? (
             <span className="tag crit">disabled</span>
           ) : u.mustChangePassword ? (
@@ -258,6 +259,7 @@ function UserRow({
                       displayName: edit.displayName.trim(),
                       email: edit.email.trim(),
                       ...(isSelf ? {} : { role: edit.role }),
+                      ...(edit.role === 'engineer' ? { canOperate: edit.canOperate } : {}),
                     },
                   }),
                 );
@@ -288,6 +290,18 @@ function UserRow({
                 <option value="engineer">Engineer</option>
                 <option value="admin">Admin</option>
               </select>
+              {edit.role === 'engineer' ? (
+                <label className="row" style={{ gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={edit.canOperate}
+                    onChange={(e) => setEdit({ ...edit, canOperate: e.target.checked })}
+                  />
+                  Can operate (start, stop, restart)
+                </label>
+              ) : (
+                <span className="muted">Admins can always operate</span>
+              )}
               <button className="btn primary small">Save</button>
             </form>
           </td>

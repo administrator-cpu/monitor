@@ -84,6 +84,7 @@ export const RULE_META: Record<string, RuleMeta> = {
   'monitor.log_dropped': m(true, null),
   'monitor.collector_stale': m(true, null),
   'monitor.sqlite_write_failing': m(true, null),
+  'monitor.email_bounce_spike': m(true, 'emails / hour'),
   'monitor.email_failing': m(true, null, { emailable: false }),
 };
 

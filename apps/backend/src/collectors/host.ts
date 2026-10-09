@@ -72,17 +72,31 @@ export function cpuMemCollector(
 
 const EXCLUDED_FS_TYPES = new Set(['tmpfs', 'devtmpfs', 'squashfs', 'efivarfs', 'proc', 'sysfs']);
 
+/**
+ * Optical media (a DVD or a mounted ISO) is always "full" and read-only, so it is never a disk the
+ * operator can act on. It is left out on every platform.
+ */
+const OPTICAL_FS_TYPES = new Set(['cdfs', 'udf', 'iso9660', 'cd9660']);
+
+/**
+ * `exclude` holds drive letters (Windows, for example `D:`) or mount points that an admin asked to
+ * hide through DISK_EXCLUDE.
+ */
 export function selectDisks(
   raw: { fs: string; type: string; size: number; used: number; mount: string }[],
   platform: NodeJS.Platform = process.platform,
+  exclude: readonly string[] = [],
 ): DiskState[] {
   const seen = new Set<string>();
   const out: DiskState[] = [];
+  const hidden = new Set(exclude.map((x) => x.toUpperCase()));
   for (const d of raw) {
     if (!(d.size > 0)) continue;
     if (platform !== 'win32' && EXCLUDED_FS_TYPES.has(d.type)) continue;
+    if (OPTICAL_FS_TYPES.has(String(d.type ?? '').toLowerCase())) continue;
     const volume = platform === 'win32' ? d.mount.replace(/[\\/]+$/, '').toUpperCase() : d.mount;
     if (platform === 'win32' && !/^[A-Z]:$/.test(volume)) continue;
+    if (hidden.has(volume.toUpperCase())) continue;
     if (seen.has(volume)) continue;
     seen.add(volume);
     // I/O rates come with the disk-I/O collector in phase 3; null means "not measured".
@@ -97,13 +111,14 @@ export function diskCollector(
   state: StateStore,
   now: () => number = Date.now,
   src: HostSource = realSource,
+  exclude: readonly string[] = [],
 ): CollectorDef {
   return {
     name: 'disk',
     intervalMs: 10_000,
     timeoutMs: 15_000,
     async run() {
-      state.setDisks(selectDisks(await src.fsSize()), now());
+      state.setDisks(selectDisks(await src.fsSize(), process.platform, exclude), now());
     },
   };
 }

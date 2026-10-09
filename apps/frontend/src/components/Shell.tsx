@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: '/mongo', label: 'MongoDB' },
   { href: '/logs', label: 'Log search' },
   { href: '/alerts', label: 'Alerts' },
+  { href: '/email', label: 'Email' },
   { href: '/admin/users', label: 'Users', admin: true },
   { href: '/admin/settings', label: 'Settings', admin: true },
   { href: '/admin/audit', label: 'Audit log', admin: true },

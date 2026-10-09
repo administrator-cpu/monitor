@@ -81,7 +81,7 @@ export class WorkerPm2Source implements Pm2Source {
     }
   }
 
-  private call<T>(op: string): Promise<T> {
+  private call<T>(op: string, extra: Record<string, unknown> = {}): Promise<T> {
     const w = this.ensureWorker();
     return new Promise<T>((resolve, reject) => {
       const id = this.nextId++;
@@ -90,7 +90,7 @@ export class WorkerPm2Source implements Pm2Source {
         reject(new Error(`PM2 ${op} timed out after ${this.timeoutMs} ms`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
-      w.postMessage({ id, op });
+      w.postMessage({ id, op, ...extra });
     });
   }
 
@@ -100,6 +100,10 @@ export class WorkerPm2Source implements Pm2Source {
 
   list(): Promise<Pm2Proc[]> {
     return this.call<Pm2Proc[]>('list');
+  }
+
+  act(action: 'restart' | 'stop', pmId: number): Promise<void> {
+    return this.call<void>('act', { action, pmId });
   }
 
   async startBus(handlers: Pm2Handlers): Promise<void> {

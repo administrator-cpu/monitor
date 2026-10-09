@@ -755,3 +755,12 @@ pre.detail {
 .card-head select {
   width: auto;
 }
+
+ul.plain {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+ul.plain li {
+  padding: 3px 0;
+}

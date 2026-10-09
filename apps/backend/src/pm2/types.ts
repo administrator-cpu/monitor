@@ -50,13 +50,16 @@ export interface Pm2Handlers {
 }
 
 /**
- * Read-only view of PM2. There is deliberately no start, stop, restart or delete here: actions
- * arrive in phase 10 together with the authenticator-code check.
+ * View of PM2 plus exactly two changes: restart and stop of one process instance, addressed by
+ * its numeric id. There is deliberately no delete, kill, reload, free-text name or command here.
+ * (Start is a restart of a stopped instance.)
  */
 export interface Pm2Source {
   /** Verifies the daemon is reachable and connects. Never starts a daemon. */
   connect(): Promise<void>;
   list(): Promise<Pm2Proc[]>;
+  /** Restarts (which also starts a stopped instance) or stops one instance by its PM2 id. */
+  act(action: 'restart' | 'stop', pmId: number): Promise<void>;
   startBus(handlers: Pm2Handlers): Promise<void>;
   stopBus(): Promise<void>;
   /** Releases everything, including a worker thread when there is one. */

@@ -136,6 +136,17 @@ export class InProcPm2Source implements Pm2Source {
     return out;
   }
 
+  async act(action: 'restart' | 'stop', pmId: number): Promise<void> {
+    if (!Number.isInteger(pmId) || pmId < 0) throw new Error('Invalid PM2 process id');
+    const pm2 = this.api();
+    // A number, never a name: PM2 treats names such as "all" or patterns specially.
+    await new Promise<void>((resolve, reject) => {
+      const done = (err: unknown) => (err ? reject(err instanceof Error ? err : new Error(String(err))) : resolve());
+      if (action === 'restart') pm2.restart(pmId, done);
+      else pm2.stop(pmId, done);
+    });
+  }
+
   async startBus(handlers: Pm2Handlers): Promise<void> {
     await this.stopBus();
     this.handlers = handlers;

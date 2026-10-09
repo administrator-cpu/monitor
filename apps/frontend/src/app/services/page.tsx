@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
 import type { ServicesResponse } from '@cc/shared';
+import { GitBadgeTag } from '@/components/GitCard';
 import { processLabel, StatusDot } from '@/components/ServiceStatus';
 import { PageHead, Shell } from '@/components/Shell';
 import { bytes, duration, pct, timeAgo } from '@/lib/format';
@@ -62,6 +63,7 @@ function Services() {
                       <Link href={`/services/${s.id}`}>{s.name}</Link>
                       {s.name !== s.pm2Name && <span className="muted"> ({s.pm2Name})</span>}
                       {s.isArchived && <span className="tag" style={{ marginLeft: 8 }}>archived</span>}
+                      {s.git && <span style={{ marginLeft: 8 }}><GitBadgeTag git={s.git} /></span>}
                       {!s.isArchived && s.stale && <span className="tag warn" style={{ marginLeft: 8 }}>not seen lately</span>}
                     </td>
                     <td>

@@ -74,6 +74,8 @@ export const updateUserSchema = z
     notes: z.string().trim().max(1000).nullish(),
     role: roleSchema.optional(),
     isActive: z.boolean().optional(),
+    /** Engineers only: may start, stop and restart services. Admins always may. */
+    canOperate: z.boolean().optional(),
   })
   .strict();
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
@@ -109,9 +111,43 @@ export const servicePatchSchema = z
     nginxMatch: z.string().trim().max(200).nullable().optional(),
     notes: z.string().trim().max(1000).nullable().optional(),
     isArchived: z.boolean().optional(),
+    /** GitHub repository as `owner/name`. */
+    gitRepo: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/, 'Use owner/name, for example acme/shop-api')
+      .nullable()
+      .optional(),
+    gitBranch: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_][A-Za-z0-9._/-]{0,99}$/, 'Not a valid branch name')
+      .optional(),
+    /** Absolute folder of the checkout (or deploy folder with a `.deploy-sha` file) on the server. */
+    gitPath: z
+      .string()
+      .trim()
+      .max(300)
+      .regex(/^([A-Za-z]:[\\/]|\/)[^\0\r\n]*$/, 'Use an absolute path, for example C:\\Apps\\shop-api')
+      .nullable()
+      .optional(),
   })
   .strict();
 export type ServicePatchInput = z.infer<typeof servicePatchSchema>;
+
+export const SERVICE_ACTIONS = ['restart', 'stop', 'start'] as const;
+export type ServiceAction = (typeof SERVICE_ACTIONS)[number];
+export const serviceActionSchema = z.object({ action: z.enum(SERVICE_ACTIONS) }).strict();
+export interface ServiceActionResponse {
+  ok: true;
+  action: ServiceAction;
+  /** PM2 status after the action, as far as it could be confirmed. */
+  status: string;
+  /** False when PM2 accepted the command but the new state was not seen within the wait time. */
+  verified: boolean;
+  /** Length of the automatic alert mute set by Stop; 0 when none. */
+  mutedMinutes: number;
+}
 
 // --- alerts (phase 4) ------------------------------------------------------
 
@@ -194,6 +230,8 @@ export interface UserDto {
   notes: string | null;
   role: Role;
   isActive: boolean;
+  /** True for admins, and for engineers an admin has allowed. */
+  canOperate: boolean;
   mustChangePassword: boolean;
   lastLoginAt: number | null;
   lastLoginIp: string | null;
@@ -388,6 +426,9 @@ export interface ServiceDto {
   lastSeenAt: number;
   isArchived: boolean;
   notes: string | null;
+  gitRepo: string | null;
+  gitBranch: string;
+  gitPath: string | null;
   /** Not seen in PM2 within `pm2.stale_hours`. */
   stale: boolean;
 }
@@ -398,8 +439,75 @@ export interface ServiceLive {
   app: Omit<AppServiceState, 'tenants'> | null;
 }
 
+export type GitState =
+  | 'ok'
+  | 'no_token'
+  | 'token_rejected'
+  | 'repo_not_found'
+  | 'rate_limited'
+  | 'no_server_commit'
+  | 'sha_unknown'
+  | 'error';
+export type GitSync = 'in_sync' | 'behind' | 'ahead' | 'diverged' | 'unknown';
+
+export interface GitRunDto {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  sha: string;
+  url: string;
+  at: number;
+  event: string;
+}
+export interface GitPrDto {
+  number: number;
+  title: string;
+  author: string;
+  draft: boolean;
+  url: string;
+  updatedAt: number;
+}
+export interface GitStatusDto {
+  serviceId: number;
+  state: GitState;
+  /** Plain-language reason when `state` is not `ok`. */
+  message: string | null;
+  checkedAt: number;
+  repo: string;
+  branch: string;
+  /** Commit found in the folder on this server. */
+  serverSha: string | null;
+  serverBranch: string | null;
+  /** Uncommitted changes in the folder. */
+  dirty: boolean;
+  branchSha: string | null;
+  /** Commits on the branch that the server does not have. */
+  behindBy: number;
+  /** Commits on the server that the branch does not have. */
+  aheadBy: number;
+  sync: GitSync;
+  runs: GitRunDto[];
+  prs: GitPrDto[];
+  lastDeployAt: number | null;
+}
+export interface GitBadge {
+  state: GitState;
+  sync: GitSync;
+  behindBy: number;
+  dirty: boolean;
+}
+export interface GitResponse {
+  /** True when an admin has set a repository for the service. */
+  configured: boolean;
+  /** Whether the server has a GitHub token at all. */
+  tokenSet: boolean;
+  git: GitStatusDto | null;
+}
+
 export interface ServiceListItem extends ServiceDto {
   process: ProcessState | null;
+  git: GitBadge | null;
 }
 
 export interface ServicesResponse {
@@ -438,6 +546,9 @@ export interface ServiceDetailResponse {
   series: ServiceSeries;
   events: ProcessEventDto[];
   openIncidents: number;
+  git: GitBadge | null;
+  /** Whether Start, Stop and Restart are possible for this service at all (not who may press them). */
+  operable: { ok: boolean; reason: string | null };
 }
 
 // ---------------------------------------------------------------------------
@@ -861,4 +972,28 @@ export interface WindowsEventsResponse {
   /** False on a non-Windows host or before the collector has run. */
   collecting: boolean;
   events: WindowsEventDto[];
+}
+
+// --- email delivery (Resend webhooks) ----------------------------------------
+
+export interface EmailSummaryRowDto {
+  domain: string;
+  sent: number;
+  delivered: number;
+  delayed: number;
+  bounced: number;
+  complained: number;
+  failed: number;
+  suppressed: number;
+}
+export interface EmailSummaryResponse {
+  /** False until RESEND_WEBHOOK_SECRET is set on the server. */
+  configured: boolean;
+  /** When the last webhook arrived; null if none yet. */
+  lastReceivedAt: number | null;
+  hours: number;
+  from: number;
+  rows: EmailSummaryRowDto[];
+  hourly: { ts: number; delivered: number; bad: number }[];
+  badLastHour: number;
 }

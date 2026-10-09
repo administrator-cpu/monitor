@@ -46,7 +46,7 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
   const app = await buildApp(ctx);
 
   ctx.scheduler.register(cpuMemCollector(ctx.state));
-  ctx.scheduler.register(diskCollector(ctx.state));
+  ctx.scheduler.register(diskCollector(ctx.state, undefined, undefined, config.diskExclude));
   ctx.scheduler.register(systemCollector(ctx.state));
   if (process.platform === 'win32') {
     ctx.scheduler.register(diskIoCollector(ctx.state));
@@ -54,7 +54,27 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
   }
   if (ctx.pm2) {
     ctx.scheduler.register(
-      pm2Collector({ link: ctx.pm2, services: ctx.services, state: ctx.state, events: ctx.procEvents, backfill: new LogBackfill(ctx.logs.pipeline) }),
+      pm2Collector({
+        link: ctx.pm2,
+        services: ctx.services,
+        state: ctx.state,
+        events: ctx.procEvents,
+        backfill: new LogBackfill(ctx.logs.pipeline),
+        autoArchive: {
+          minutes: () => ctx.settings.get('pm2.auto_archive_minutes'),
+          archive: (svc) => {
+            // Not live by definition (the collector only offers services PM2 did not list).
+            ctx.services.update(svc.id, { isArchived: true }, new Set());
+            ctx.alerts.onServiceArchived(svc.id);
+            ctx.audit.write({
+              event: 'service_updated',
+              username: 'system',
+              detail: { serviceId: svc.id, pm2Name: svc.pm2_name, changed: ['isArchived'], auto: true, reason: 'not listed by PM2' },
+            });
+            log.info({ service: svc.pm2_name }, 'service archived: PM2 no longer lists it');
+          },
+        },
+      }),
     );
   } else {
     log.warn('PM2 monitoring is switched off (PM2_ENABLED=false)');
@@ -128,6 +148,7 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
       runRetention(db, ctx.settings, Date.now());
     },
   });
+  ctx.scheduler.register(ctx.git.collector());
   ctx.scheduler.register({ name: 'alerts', intervalMs: 5_000, async run() { ctx.alerts.run(); } });
 
   // Decide whether the log volume is usable before any log line is written.

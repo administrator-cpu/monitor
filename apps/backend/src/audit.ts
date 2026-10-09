@@ -22,7 +22,9 @@ export type AuditEvent =
   | 'test_email_sent'
   | 'log_search'
   | 'log_tail_opened'
-  | 'service_updated';
+  | 'service_updated'
+  | 'service_action'
+  | 'service_action_failed';
 
 export interface AuditInput {
   event: AuditEvent;

@@ -29,6 +29,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     pm2Enabled: false,
     resendApiUrl: 'http://127.0.0.1:1/emails',
     tlsCheckHosts: [],
+    diskExclude: [],
     mongoProfileDbs: [],
     ...overrides,
   };

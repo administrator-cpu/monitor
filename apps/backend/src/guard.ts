@@ -41,6 +41,8 @@ export function clearSessionCookie(ctx: AppContext, reply: FastifyReply): void {
 
 export interface GuardOptions {
   admin?: boolean;
+  /** Admins, and engineers an admin has allowed to start, stop and restart services. */
+  operate?: boolean;
   /** Allow users who still have to change their password (me, logout, change-password). */
   allowMustChange?: boolean;
 }
@@ -77,6 +79,10 @@ export function requireUser(ctx: AppContext, opts: GuardOptions = {}) {
     }
     if (opts.admin && r.user.role !== 'admin') {
       await reply.code(403).send({ error: 'forbidden' });
+      return;
+    }
+    if (opts.operate && r.user.role !== 'admin' && r.user.can_operate !== 1) {
+      await reply.code(403).send({ error: 'forbidden', message: 'You are not allowed to operate services.' });
       return;
     }
     req.auth = { user: r.user, session: r.session, token };

@@ -41,9 +41,9 @@ describe('alerts and services API', () => {
   });
 
   describe('rules', () => {
-    it('lists the 28 default rules, every one of them implemented', async () => {
+    it('lists the 29 default rules, every one of them implemented', async () => {
       const rules = (await req('GET', '/alerts/rules', eng)).json().rules as { key: string; implemented: boolean }[];
-      expect(rules).toHaveLength(28);
+      expect(rules).toHaveLength(29);
       expect(rules.find((r) => r.key === 'host.disk_high')?.implemented).toBe(true);
       expect(rules.find((r) => r.key === 'nginx.5xx_rate')?.implemented).toBe(true);
       expect(rules.filter((r) => !r.implemented).map((r) => r.key)).toEqual([]);

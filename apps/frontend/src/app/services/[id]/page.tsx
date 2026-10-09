@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import type { AlignedData } from 'uplot';
 import type { ServiceDetailResponse, TenantHistoryResponse, TenantsResponse } from '@cc/shared';
+import { ActionsCard } from '@/components/ActionsCard';
+import { GitCard } from '@/components/GitCard';
 import { HistoryPanel, IncidentTimeline } from '@/components/History';
 import { LogViewer } from '@/components/LogViewer';
 import { processLabel, StatusDot } from '@/components/ServiceStatus';
@@ -241,6 +243,7 @@ function Detail() {
   const id = params.id;
   const auth = useAuth();
   const isAdmin = auth.state.status === 'authed' && auth.state.me.user.role === 'admin';
+  const canOperate = auth.state.status === 'authed' && auth.state.me.user.canOperate;
   const { data, error, mutate } = useSWR<ServiceDetailResponse>(`/services/${id}`, fetcher, {
     refreshInterval: 5_000,
   });
@@ -415,6 +418,12 @@ function Detail() {
           </div>
         )}
       </section>
+
+      {canOperate && (
+        <ActionsCard service={data.service} status={data.process?.status ?? null} operable={data.operable} onDone={() => void mutate()} />
+      )}
+
+      <GitCard service={data.service} isAdmin={isAdmin} onChanged={() => void mutate()} />
 
       {isAdmin && (
         <div style={{ marginTop: 14 }}>

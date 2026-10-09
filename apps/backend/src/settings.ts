@@ -53,6 +53,8 @@ export const SETTING_DEFS = {
   'retention.events_days': { type: 'number', default: 7, int: true, min: 1, max: 90 },
   'retention.alerts_days': { type: 'number', default: 90, int: true, min: 1, max: 730 },
   'retention.audit_days': { type: 'number', default: 365, int: true, min: 1, max: 3650 },
+  /** Resend delivery counts and webhook ids older than this are deleted. */
+  'retention.email_days': { type: 'number', default: 30, int: true, min: 1, max: 365 },
   'logs.retention_hours': { type: 'number', default: 24, min: 1, max: 168 },
   'logs.volume_threshold_pct': { type: 'number', default: 85, min: 50, max: 99 },
   'logs.ring_buffer_lines': { type: 'number', default: 5000, int: true, min: 100, max: 100000 },
@@ -65,6 +67,12 @@ export const SETTING_DEFS = {
   'alert.from': { type: 'string', default: null, normalize: normalizeFrom },
   'alert.dashboard_url': { type: 'string', default: null, normalize: normalizeUrl },
   'pm2.stale_hours': { type: 'number', default: 24, min: 1, max: 720 },
+  /** A service PM2 has not listed for this long is archived automatically. 0 turns it off. */
+  'pm2.auto_archive_minutes': { type: 'number', default: 15, int: true, min: 0, max: 10080 },
+  /** How often GitHub is asked about each service that has a repository set. */
+  'github.poll_minutes': { type: 'number', default: 5, int: true, min: 1, max: 1440 },
+  /** Stop from the dashboard silences that service's "service down" alert for this long. 0 turns it off. */
+  'actions.stop_mute_minutes': { type: 'number', default: 30, int: true, min: 0, max: 1440 },
   'agent.max_tenants_per_report': { type: 'number', default: 50, int: true, min: 1, max: 500 },
   'nginx.top_n': { type: 'number', default: 50, int: true, min: 5, max: 500 },
   'mongo.slow_ms': { type: 'number', default: 100, int: true, min: 1, max: 60000 },

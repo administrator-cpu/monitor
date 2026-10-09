@@ -12,6 +12,9 @@ export interface ServiceRow {
   last_seen_at: number;
   is_archived: number;
   notes: string | null;
+  git_repo: string | null;
+  git_branch: string;
+  git_path: string | null;
 }
 
 export class ServiceConflictError extends Error {
@@ -118,6 +121,9 @@ export class ServicesRepo {
       nginxMatch?: string | null;
       notes?: string | null;
       isArchived?: boolean;
+      gitRepo?: string | null;
+      gitBranch?: string;
+      gitPath?: string | null;
     },
     livePm2Names: ReadonlySet<string>,
   ): ServiceRow {
@@ -139,12 +145,16 @@ export class ServicesRepo {
       nginx_match: patch.nginxMatch === undefined ? row.nginx_match : patch.nginxMatch,
       notes: patch.notes === undefined ? row.notes : patch.notes,
       is_archived: patch.isArchived === undefined ? row.is_archived : patch.isArchived ? 1 : 0,
+      git_repo: patch.gitRepo === undefined ? row.git_repo : patch.gitRepo,
+      git_branch: patch.gitBranch ?? row.git_branch,
+      git_path: patch.gitPath === undefined ? row.git_path : patch.gitPath,
     };
     this.db
       .prepare(
-        `UPDATE services SET name = ?, public_url = ?, nginx_match = ?, notes = ?, is_archived = ? WHERE id = ?`,
+        `UPDATE services SET name = ?, public_url = ?, nginx_match = ?, notes = ?, is_archived = ?,
+           git_repo = ?, git_branch = ?, git_path = ? WHERE id = ?`,
       )
-      .run(next.name, next.public_url, next.nginx_match, next.notes, next.is_archived, id);
+      .run(next.name, next.public_url, next.nginx_match, next.notes, next.is_archived, next.git_repo, next.git_branch, next.git_path, id);
     const updated = { ...row, ...next };
     this.byPm2.set(row.pm2_name, updated);
     return updated;
@@ -163,6 +173,9 @@ export class ServicesRepo {
       lastSeenAt: r.last_seen_at,
       isArchived: r.is_archived === 1,
       notes: r.notes,
+      gitRepo: r.git_repo,
+      gitBranch: r.git_branch,
+      gitPath: r.git_path,
       stale: this.now() - r.last_seen_at > staleMs,
     };
   }

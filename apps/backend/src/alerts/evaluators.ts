@@ -22,6 +22,7 @@ export interface EvalContext {
   persistence: () => { consecutiveFailures: number };
   email: () => { consecutiveFailures: number };
   agentEnabled: (serviceId: number) => boolean;
+  emailBadSince: (since: number) => number;
 }
 
 /** `null` means "cannot evaluate right now": open incidents keep their state. */
@@ -470,6 +471,21 @@ export function createEvaluators(): Record<string, Evaluator> {
           active: n >= limit,
           value: n,
           summary: `Metric writes to the database failed ${n} times in a row`,
+        },
+      ];
+    },
+
+    'monitor.email_bounce_spike': (rule, c) => {
+      const n = c.emailBadSince(c.now - 3_600_000);
+      const limit = rule.threshold ?? 5;
+      return [
+        {
+          target: '',
+          serviceId: null,
+          active: n >= limit,
+          value: n,
+          summary: `${n} emails bounced or drew a complaint in the last hour (limit ${limit})`,
+          refresh: true,
         },
       ];
     },

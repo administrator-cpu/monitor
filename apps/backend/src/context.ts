@@ -9,6 +9,10 @@ import { SessionStore } from './auth/sessions';
 import { Users } from './auth/users';
 import type { Config } from './config';
 import type { Db } from './db';
+import { EmailStats } from './email/stats';
+import { GitHubClient } from './github/client';
+import { readLocalCommit, type LocalRead } from './github/local';
+import { GitMonitor } from './github/monitor';
 import { LiveHub } from './hub';
 import { LogSystem, type LogSystemOptions } from './logs';
 import { LogSearcher, type SearcherOptions } from './logs/searcher';
@@ -17,6 +21,7 @@ import type { Logger } from './logger';
 import { MonitorHealthReporter } from './monitor-health';
 import { Persistence } from './persist';
 import { ProcessEvents } from './pm2/events';
+import { ServiceActions } from './pm2/actions';
 import { Pm2Link } from './pm2/link';
 import { ServicesRepo } from './pm2/services';
 import type { Pm2Source } from './pm2/types';
@@ -50,6 +55,9 @@ export interface AppContext {
   mailer: Mailer | null;
   notifier: Notifier;
   alerts: AlertEngine;
+  git: GitMonitor;
+  email: EmailStats;
+  actions: ServiceActions;
 }
 
 /** Test and demo hooks; production passes none of these. */
@@ -60,6 +68,8 @@ export interface ContextOverrides {
   sink?: PipelineSink;
   logOptions?: Partial<LogSystemOptions>;
   searchOptions?: SearcherOptions;
+  actions?: { verifyMs?: number; pollMs?: number; cooldownMs?: number; ownPmId?: () => number | null };
+  github?: { client?: GitHubClient | null; readLocal?: LocalRead };
 }
 
 /** Wires every long-lived object together. `now` is injectable so tests control time. */
@@ -121,6 +131,7 @@ export function createContext(opts: {
         ? new ResendMailer({ apiKey: opts.config.resendApiKey, url: opts.config.resendApiUrl })
         : null;
   const notifier = new Notifier({ mailer, repo: alertRepo, settings, config: opts.config, log: opts.log, now });
+  const email = new EmailStats(opts.db, now);
   const alerts = new AlertEngine({
     repo: alertRepo,
     state,
@@ -130,9 +141,29 @@ export function createContext(opts: {
     logs: () => logs.status(),
     persistence: () => persistence.status(),
     agentEnabled: (id) => services.get(id)?.agent_enabled === 1,
+    emailBadSince: (since) => email.badSince(since),
     log: opts.log,
     now,
     emit: (kind, fields) => ctx.hub?.broadcastEvent(kind, fields),
+  });
+
+  const git = new GitMonitor({
+    db: opts.db,
+    services,
+    client:
+      ov.github?.client !== undefined ? ov.github.client : opts.config.githubToken ? new GitHubClient({ token: opts.config.githubToken }) : null,
+    readLocal: ov.github?.readLocal ?? readLocalCommit,
+    pollMinutes: () => settings.get('github.poll_minutes'),
+    now,
+  });
+
+  const actions = new ServiceActions({
+    link: pm2,
+    alertRepo,
+    audit,
+    now,
+    stopMuteMinutes: () => settings.get('actions.stop_mute_minutes'),
+    ...ov.actions,
   });
 
   // The hub and the reporter reference each other only through closures.
@@ -158,6 +189,9 @@ export function createContext(opts: {
     mailer,
     notifier,
     alerts,
+    git,
+    email,
+    actions,
   } as AppContext;
   ctx.hub = new LiveHub(ctx);
   ctx.health = new MonitorHealthReporter(opts.config.sqlitePath, () => ctx.hub.size);

@@ -94,11 +94,11 @@ describe('passwordPolicyError', () => {
 describe('migrations', () => {
   it('apply once, are idempotent and seed the reserved service row', () => {
     const db = openDb(':memory:');
-    expect(migrate(db).applied).toEqual(['001_init.sql', '002_pm2.sql', '003_alerts.sql', '004_nginx.sql', '005_mongo.sql', '006_agent.sql', '007_events.sql']);
+    expect(migrate(db).applied).toEqual(['001_init.sql', '002_pm2.sql', '003_alerts.sql', '004_nginx.sql', '005_mongo.sql', '006_agent.sql', '007_events.sql', '008_github.sql', '009_email.sql']);
     expect(migrate(db).applied).toEqual([]);
     const svc = db.prepare('SELECT id, name FROM services WHERE id = 0').get();
     expect(svc).toEqual({ id: 0, name: '_unattributed' });
-    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }]);
     const mode = db.pragma('foreign_keys', { simple: true });
     expect(mode).toBe(1);
   });
@@ -185,6 +185,17 @@ describe('config', () => {
   });
 });
 
+describe('DISK_EXCLUDE', () => {
+  const base = { ALLOWED_ORIGINS: 'http://localhost:3111', COOKIE_SECRET: 'x'.repeat(32) };
+  it('is empty by default and normalises drive letters', () => {
+    expect(loadConfig({ ...base }).diskExclude).toEqual([]);
+    expect(loadConfig({ ...base, DISK_EXCLUDE: 'd, f:' }).diskExclude).toEqual(['D:', 'F:']);
+  });
+  it('rejects values that are not drive letters or absolute paths', () => {
+    expect(() => loadConfig({ ...base, DISK_EXCLUDE: 'DVD' })).toThrow(ConfigError);
+  });
+});
+
 describe('host collectors', () => {
   const src: HostSource = {
     currentLoad: async () => ({ currentLoad: 140, cpus: [{ load: 20 }, { load: -5 }] }),
@@ -223,6 +234,20 @@ describe('host collectors', () => {
     const d = state.getHost()!.disks[0]!;
     expect(d.readBps).toBeNull();
     expect(d.writeBps).toBeNull();
+  });
+
+  it('leaves out a DVD drive that is always full, and drives an admin excluded', () => {
+    const raw = [
+      { fs: 'C:', type: 'NTFS', size: 100, used: 40, mount: 'C:' },
+      { fs: 'D:', type: 'CDFS', size: 5, used: 5, mount: 'D:' },
+      { fs: 'E:', type: 'NTFS', size: 200, used: 20, mount: 'E:' },
+      { fs: 'F:', type: 'NTFS', size: 450, used: 100, mount: 'F:' },
+    ];
+    expect(selectDisks(raw, 'win32').map((d) => d.volume)).toEqual(['C:', 'E:', 'F:']);
+    expect(selectDisks(raw, 'win32', ['f:']).map((d) => d.volume)).toEqual(['C:', 'E:']);
+    // UDF (a mounted ISO) is optical too, and the exclude list also catches a drive reported as NTFS.
+    expect(selectDisks([{ fs: 'D:', type: 'UDF', size: 5, used: 5, mount: 'D:' }, ...raw.slice(0, 1)], 'win32').map((d) => d.volume)).toEqual(['C:']);
+    expect(selectDisks([{ fs: 'D:', type: 'NTFS', size: 5, used: 5, mount: 'D:' }, ...raw.slice(0, 1)], 'win32', ['D:']).map((d) => d.volume)).toEqual(['C:']);
   });
 
   it('filters pseudo filesystems on Linux', () => {

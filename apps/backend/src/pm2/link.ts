@@ -89,6 +89,12 @@ export class Pm2Link {
     }
   }
 
+  /** Restart or stop one instance. Needs a live connection; it never starts a PM2 daemon. */
+  async act(action: 'restart' | 'stop', pmId: number): Promise<void> {
+    if (!this.source || !this.connected) throw new Error('PM2 is not connected');
+    await this.source.act(action, pmId);
+  }
+
   private async reset(): Promise<void> {
     const s = this.source;
     this.source = null;

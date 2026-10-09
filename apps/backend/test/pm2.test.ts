@@ -97,6 +97,7 @@ describe('Pm2Link', () => {
       if (this.failList) throw this.failList;
       return [proc()];
     }
+    async act() {}
     async startBus(h: Pm2Handlers) {
       this.buses += 1;
       this.handlers = h;
@@ -251,6 +252,68 @@ describe('ServicesRepo and the pm2 collector', () => {
     expect(liveNames(states)).toEqual(new Set(['api']));
   });
 
+  describe('auto-archive of services PM2 no longer lists', () => {
+    function build(minutes: number, listed: Pm2Proc[]) {
+      const { services, clock } = setup();
+      const state = new StateStore();
+      const gone = services.discover('chatty');
+      const archived: string[] = [];
+      const link = { list: vi.fn(async () => listed) };
+      const c = pm2Collector({
+        link: link as never,
+        services,
+        state,
+        events: new ProcessEvents(),
+        now: () => clock.t,
+        autoArchive: { minutes: () => minutes, archive: (svc) => archived.push(svc.pm2_name) },
+      });
+      return { c, clock, state, archived, gone, services };
+    }
+
+    it('archives a service PM2 has not listed for longer than the setting, and leaves it out of the view', async () => {
+      const { c, clock, state, archived } = build(15, [proc({ name: 'api' })]);
+      clock.t += 16 * 60_000;
+      await c.run();
+      expect(archived).toEqual(['chatty']);
+      expect(state.getProcessStates().map((s) => s.pm2Name)).toEqual(['api']);
+    });
+
+    it('keeps it (as stopped) until the time has passed', async () => {
+      const { c, clock, state, archived } = build(15, [proc({ name: 'api' })]);
+      clock.t += 5 * 60_000;
+      await c.run();
+      expect(archived).toEqual([]);
+      expect(state.getProcessStates().find((s) => s.pm2Name === 'chatty')).toMatchObject({ status: 'stopped', instances: 0 });
+    });
+
+    it('does nothing when PM2 lists no service at all (a PM2 outage must not clear the dashboard)', async () => {
+      const { c, clock, archived } = build(15, []);
+      clock.t += 24 * 3_600_000;
+      await c.run();
+      expect(archived).toEqual([]);
+    });
+
+    it('is switched off by 0', async () => {
+      const { c, clock, archived } = build(0, [proc({ name: 'api' })]);
+      clock.t += 24 * 3_600_000;
+      await c.run();
+      expect(archived).toEqual([]);
+    });
+
+    it('a service that is only stopped (still listed by PM2) is never archived', async () => {
+      const { c, clock, archived } = build(15, [proc({ name: 'api' }), proc({ name: 'chatty', pmId: 2, status: 'stopped' })]);
+      clock.t += 24 * 3_600_000;
+      await c.run();
+      expect(archived).toEqual([]);
+    });
+
+    it('a name that PM2 lists again after being archived comes back', async () => {
+      const { services, gone } = build(15, []);
+      services.update(gone.id, { isArchived: true }, new Set());
+      expect(services.discover('chatty').is_archived).toBe(0);
+    });
+  });
+
   it('collector: a failing link leaves the previous view in place and the scheduler marks it failed', async () => {
     const { services, clock } = setup();
     const state = new StateStore();
@@ -271,13 +334,22 @@ describe('disk I/O parsing', () => {
   });
 });
 
-describe('read-only guarantee', () => {
-  it('the pm2 adapter source contains no call that changes a process', () => {
-    const dir = path.join(__dirname, '../src/pm2');
-    const mutating = /\bpm2\s*\.\s*(start|stop|restart|reload|delete|kill|killDaemon|flush|reloadLogs|scale|sendSignalToProcessName|sendDataToProcessId|trigger|reset|dump|resurrect)\s*\(/;
+describe('what the pm2 adapter may change', () => {
+  const dir = path.join(__dirname, '../src/pm2');
+  const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const call = (names: string) => new RegExp(`\\bpm2\\s*\\.\\s*(${names})\\s*\\(`);
+  const never = 'start|reload|delete|kill|killDaemon|flush|reloadLogs|scale|sendSignalToProcessName|sendDataToProcessId|trigger|reset|dump|resurrect|gracefulReload|restart|stop';
+
+  it('only the adapter may restart or stop, and nothing else in it may change a process', () => {
     for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.ts'))) {
-      const src = fs.readFileSync(path.join(dir, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-      expect(mutating.test(src), f).toBe(false);
+      const src = strip(fs.readFileSync(path.join(dir, f), 'utf8'));
+      if (f === 'inproc.ts') {
+        // Only restart and stop, and only with the numeric id parameter.
+        expect(call(never.replace('|restart|stop', '')).test(src), f).toBe(false);
+        expect([...src.matchAll(/pm2\.(restart|stop)\(([^,)]*)/g)].map((m) => m[2])).toEqual(['pmId', 'pmId']);
+      } else {
+        expect(call(never).test(src), f).toBe(false);
+      }
     }
   });
 });

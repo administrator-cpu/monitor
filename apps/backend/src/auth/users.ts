@@ -10,6 +10,7 @@ export interface UserRow {
   notes: string | null;
   role: Role;
   is_active: number;
+  can_operate: number;
   password_hash: string;
   password_changed_at: number;
   must_change_password: number;
@@ -31,6 +32,7 @@ export function toUserDto(u: UserRow): UserDto {
     notes: u.notes,
     role: u.role,
     isActive: u.is_active === 1,
+    canOperate: u.role === 'admin' || u.can_operate === 1,
     mustChangePassword: u.must_change_password === 1,
     lastLoginAt: u.last_login_at,
     lastLoginIp: u.last_login_ip,
@@ -116,6 +118,7 @@ export class Users {
       ['notes', 'notes', (v) => (v as string | null) ?? null],
       ['role', 'role', (v) => v as string],
       ['isActive', 'is_active', (v) => ((v as boolean) ? 1 : 0)],
+      ['canOperate', 'can_operate', (v) => ((v as boolean) ? 1 : 0)],
     ];
     for (const [key, col, conv] of map) {
       if (patch[key] !== undefined) {

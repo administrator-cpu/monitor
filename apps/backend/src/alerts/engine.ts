@@ -25,6 +25,8 @@ export interface EngineDeps {
   persistence: () => { consecutiveFailures: number };
   /** True for services whose agent has reported at least once, even before this process started. */
   agentEnabled?: (serviceId: number) => boolean;
+  /** Bounced plus complained emails since the given time (from the Resend webhooks). */
+  emailBadSince?: (since: number) => number;
   log: Pick<Logger, 'warn' | 'info'>;
   now: () => number;
   /** Broadcasts to the browsers (WebSocket event messages). */
@@ -109,6 +111,7 @@ export class AlertEngine {
       persistence: this.d.persistence,
       email: () => ({ consecutiveFailures: this.d.notifier.failures }),
       agentEnabled: (id) => this.d.agentEnabled?.(id) ?? false,
+      emailBadSince: (since) => this.d.emailBadSince?.(since) ?? 0,
     };
 
     for (const rule of rules) {

@@ -28,6 +28,18 @@ const hostList = z
   )
   .pipe(z.array(z.string().regex(/^[a-z0-9.-]+(:\d{1,5})?$/, 'invalid host')).max(50));
 
+/** Drive letters (`D:` or just `D`) or absolute mount points, comma separated. */
+const diskList = z
+  .string()
+  .transform((s) =>
+    s
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((x) => (/^[A-Za-z]$/.test(x) ? `${x.toUpperCase()}:` : /^[A-Za-z]:[\\/]*$/.test(x) ? `${x[0]!.toUpperCase()}:` : x)),
+  )
+  .pipe(z.array(z.string().regex(/^([A-Z]:|\/[^\s,]*)$/, 'use drive letters such as D: or absolute mount points')).max(20));
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   BIND_HOST: z.string().min(1).default('127.0.0.1'),
@@ -70,6 +82,12 @@ const schema = z.object({
     .max(200)
     .regex(/^[^\r\n]+$/)
     .optional(),
+  /** Fine-grained, read-only GitHub token. A secret: never logged. */
+  GITHUB_TOKEN: z.string().min(10).max(255).optional(),
+  /** Signing secret of the Resend webhook (starts with whsec_). A secret: never logged. */
+  RESEND_WEBHOOK_SECRET: z.string().min(10).max(255).optional(),
+  /** Volumes to leave out of the disk list and the disk alerts (for example `D:` for a DVD drive). */
+  DISK_EXCLUDE: diskList.optional(),
   /** Nginx `stub_status` location; must be loopback so the monitor can never be pointed elsewhere. */
   NGINX_STATUS_URL: loopbackUrl.optional(),
   NGINX_ACCESS_LOG: z.string().min(1).optional(),
@@ -118,6 +136,8 @@ export interface Config {
   pm2Home?: string;
   resendApiKey?: string;
   resendApiUrl: string;
+  githubToken?: string;
+  resendWebhookSecret?: string;
   /** Default sender; the `alert.from` setting overrides it. */
   alertFrom?: string;
   /** Default link base for emails; the `alert.dashboard_url` setting overrides it. */
@@ -126,6 +146,8 @@ export interface Config {
   nginxAccessLog?: string;
   nginxErrorLog?: string;
   tlsCheckHosts: string[];
+  /** Volumes hidden from the disk list (DISK_EXCLUDE). */
+  diskExclude: string[];
   mongoUri?: string;
   mongoProfileDbs: string[];
   ingestToken?: string;
@@ -171,12 +193,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pm2Home: v.PM2_HOME,
     resendApiKey: v.RESEND_API_KEY,
     resendApiUrl: v.RESEND_API_URL,
+    githubToken: v.GITHUB_TOKEN,
+    resendWebhookSecret: v.RESEND_WEBHOOK_SECRET,
     alertFrom: v.ALERT_FROM,
     publicDashboardUrl: v.PUBLIC_DASHBOARD_URL,
     nginxStatusUrl: v.NGINX_STATUS_URL,
     nginxAccessLog: v.NGINX_ACCESS_LOG,
     nginxErrorLog: v.NGINX_ERROR_LOG,
     tlsCheckHosts: v.TLS_CHECK_HOSTS ?? [],
+    diskExclude: v.DISK_EXCLUDE ?? [],
     mongoUri: v.MONGO_URI,
     mongoProfileDbs: v.MONGO_PROFILE_DBS ?? [],
     ingestToken: v.INGEST_TOKEN,
@@ -197,6 +222,8 @@ export function describeConfig(c: Config): Record<string, unknown> {
     pm2Home: c.pm2Home ?? '(default)',
     // Whether these are set, never their values.
     emailKeySet: Boolean(c.resendApiKey),
+    githubTokenSet: Boolean(c.githubToken),
+    resendWebhookSecretSet: Boolean(c.resendWebhookSecret),
     alertFromSet: Boolean(c.alertFrom),
     dashboardUrl: c.publicDashboardUrl ?? null,
     nginx: {
@@ -205,6 +232,7 @@ export function describeConfig(c: Config): Record<string, unknown> {
       errorLog: c.nginxErrorLog ?? null,
       tlsHosts: c.tlsCheckHosts.length,
     },
+    diskExclude: c.diskExclude,
     mongo: { configured: Boolean(c.mongoUri), profileDbs: c.mongoProfileDbs },
     ingest: { port: c.portIngest, enabled: Boolean(c.ingestToken) },
   };

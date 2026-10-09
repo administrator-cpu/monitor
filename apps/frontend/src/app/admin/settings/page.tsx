@@ -24,6 +24,10 @@ const HELP: Record<string, string> = {
   'logs.volume_threshold_pct': 'Above this usage the oldest hour of logs is deleted early.',
   'logs.ring_buffer_lines': 'Recent lines per service kept in memory for the live tail.',
   'pm2.stale_hours': 'A service not seen in PM2 for this long is flagged as not seen lately.',
+  'pm2.auto_archive_minutes': 'A service that PM2 no longer lists (for example after pm2 delete) is archived after this many minutes. 0 turns it off. A stopped service is still listed by PM2, so it is never archived.',
+  'github.poll_minutes': 'How often GitHub is asked about each service that has a repository set. Needs GITHUB_TOKEN in the server .env.',
+  'actions.stop_mute_minutes': 'Stopping a service from the dashboard silences its "service down" alert for this long (lifted when you start it). 0 turns it off.',
+  'retention.email_days': 'Resend delivery counts (per sender domain) are kept this many days.',
 };
 
 function Row({ s, onSaved }: { s: SettingEntry; onSaved: () => void }) {

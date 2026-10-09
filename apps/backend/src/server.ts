@@ -11,6 +11,7 @@ import { adminRoutes } from './routes/admin';
 import { alertRoutes } from './routes/alerts';
 import { authRoutes } from './routes/auth';
 import { monitorRoutes } from './routes/monitor';
+import { emailRoutes } from './routes/email';
 import { eventRoutes } from './routes/events';
 import { historyRoutes } from './routes/history';
 import { logSearchRoutes } from './routes/logsearch';
@@ -18,6 +19,7 @@ import { mongoRoutes } from './routes/mongo';
 import { nginxRoutes } from './routes/nginx';
 import { serviceRoutes } from './routes/services';
 import { userRoutes } from './routes/users';
+import { webhookRoutes } from './routes/webhooks';
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const WS_PATH = `${API_PREFIX}/ws`;
@@ -103,6 +105,8 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
     status: 'ok',
   }));
 
+  webhookRoutes(app, ctx);
+
   await app.register(
     async (api) => {
       authRoutes(api, ctx);
@@ -111,6 +115,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       monitorRoutes(api, ctx);
       serviceRoutes(api, ctx);
       alertRoutes(api, ctx);
+      emailRoutes(api, ctx);
       nginxRoutes(api, ctx);
       mongoRoutes(api, ctx);
       historyRoutes(api, ctx);

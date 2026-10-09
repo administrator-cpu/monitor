@@ -30,6 +30,7 @@ export function runRetention(db: Db, settings: Settings, now: number): Record<st
          AND id NOT IN (SELECT suppressed_by FROM alert_incidents WHERE suppressed_by IS NOT NULL)`,
       alerts,
     );
+    removed.email_counts = emailPrune(db, now, settings.get('retention.email_days'));
     removed.audit_log = del('DELETE FROM audit_log WHERE ts < ?', audit);
   })();
   db.prepare(
@@ -39,4 +40,12 @@ export function runRetention(db: Db, settings: Settings, now: number): Record<st
        last_status = excluded.last_status, last_detail = excluded.last_detail`,
   ).run(now, JSON.stringify(removed));
   return removed;
+}
+
+function emailPrune(db: Db, now: number, days: number): number {
+  const cut = now - days * DAY;
+  return (
+    db.prepare('DELETE FROM email_event_counts WHERE bucket < ?').run(cut).changes +
+    db.prepare('DELETE FROM email_webhook_seen WHERE seen_at < ?').run(cut).changes
+  );
 }

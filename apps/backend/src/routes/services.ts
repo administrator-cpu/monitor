@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  serviceActionSchema,
   servicePatchSchema,
+  type ServiceActionResponse,
+  type GitResponse,
   type ProcessEventDto,
   type ServiceDetailResponse,
   type ServicesResponse,
@@ -9,6 +12,7 @@ import {
 } from '@cc/shared';
 import type { AppContext } from '../context';
 import { requireUser } from '../guard';
+import { ActionError } from '../pm2/actions';
 import { fill, gridTimes, makeGrid, parseRange } from '../history';
 import { liveNames } from '../pm2/collector';
 import { ServiceConflictError } from '../pm2/services';
@@ -24,6 +28,7 @@ function parseId(raw: unknown): number | null {
 export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
   const user = { preHandler: requireUser(ctx) };
   const admin = { preHandler: requireUser(ctx, { admin: true }) };
+  const operate = { preHandler: requireUser(ctx, { operate: true }) };
 
   app.get('/services', user, async (req): Promise<ServicesResponse> => {
     const includeArchived = (req.query as { archived?: string }).archived === '1';
@@ -31,6 +36,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
       services: ctx.services.list(includeArchived).map((r) => ({
         ...ctx.services.toDto(r),
         process: ctx.state.getProcessState(r.id),
+        git: r.git_repo ? ctx.git.badge(r.id) : null,
       })),
     };
   });
@@ -67,7 +73,48 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
       series: ctx.state.getServiceSeries(row.id),
       events,
       openIncidents: ctx.alertRepo.firing().filter((i) => i.service_id === row.id).length,
+      git: row.git_repo ? ctx.git.badge(row.id) : null,
+      operable: (() => {
+        const reason = ctx.actions.blockedReason(row, null);
+        return { ok: reason === null, reason };
+      })(),
     };
+  });
+
+  // Start, stop and restart. Admins, and engineers an admin has allowed. One action at a time per service.
+  app.post(
+    '/services/:id/actions',
+    { ...operate, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (req, reply): Promise<ServiceActionResponse | void> => {
+      const actor = req.auth!.user;
+      const id = parseId((req.params as { id: string }).id);
+      const row = id === null ? undefined : ctx.services.get(id);
+      if (!row) return reply.code(404).send({ error: 'not_found' });
+      const { action } = serviceActionSchema.parse(req.body);
+      try {
+        return await ctx.actions.run(row, action, { id: actor.id, username: actor.username, ip: req.ip, userAgent: req.headers['user-agent'] });
+      } catch (e) {
+        if (e instanceof ActionError) return reply.code(e.status).send({ error: e.code, message: e.message });
+        throw e;
+      }
+    },
+  );
+
+  // Code and deploy status from GitHub (read-only). Any signed-in user may see it.
+  app.get('/services/:id/git', user, async (req, reply): Promise<GitResponse | void> => {
+    const id = parseId((req.params as { id: string }).id);
+    const row = id === null ? undefined : ctx.services.get(id);
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    return { configured: Boolean(row.git_repo), tokenSet: ctx.git.tokenSet, git: row.git_repo ? ctx.git.get(row.id) : null };
+  });
+
+  // "Check now". Admin only, and limited so it cannot be used to exhaust the GitHub rate limit.
+  app.post('/services/:id/git/refresh', { ...admin, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply): Promise<GitResponse | void> => {
+    const id = parseId((req.params as { id: string }).id);
+    const row = id === null ? undefined : ctx.services.get(id);
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const git = row.git_repo ? await ctx.git.check(row) : null;
+    return { configured: Boolean(row.git_repo), tokenSet: ctx.git.tokenSet, git };
   });
 
   // Current tenants of one service, from the agent's latest reports (names added from the tenants table).
@@ -129,6 +176,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
     try {
       const after = ctx.services.update(before.id, patch, liveNames(ctx.state.getProcessStates()));
       if (patch.isArchived === true) ctx.alerts.onServiceArchived(before.id);
+      if (patch.gitRepo !== undefined || patch.gitBranch !== undefined || patch.gitPath !== undefined) ctx.git.forget(before.id);
       ctx.audit.write({
         event: 'service_updated',
         userId: actor.id,
