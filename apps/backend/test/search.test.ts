@@ -280,10 +280,11 @@ describe('search while the monitor is busy', () => {
       await t.ctx.logs.writer.stop();
       expect(r.linesScanned).toBe(200_000);
       expect(r.matched).toBeGreaterThan(0);
-      expect(ingested).toBeGreaterThan(500);
+      const elapsed = Date.now() - started;
+      expect(ingested).toBeGreaterThanOrEqual(Math.max(1, Math.floor(elapsed / 50 / 2)) * 100);
       const p99 = h.percentile(99) / 1e6;
       const max = h.max / 1e6;
-      console.log(`search took ${Date.now() - started} ms; event loop delay p99 ${p99.toFixed(1)} ms, max ${max.toFixed(1)} ms; ${ingested} lines ingested meanwhile`);
+            console.log(`search took ${elapsed} ms; event loop delay p99 ${p99.toFixed(1)} ms, max ${max.toFixed(1)} ms; ${ingested} lines ingested meanwhile`);
       // Budget: a blocked loop would show seconds here. The thread start-up and gzip-free scan stay far below this.
       expect(p99).toBeLessThan(150);
     } finally {
