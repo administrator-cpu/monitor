@@ -76,7 +76,7 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 | HTTP | Fastify 5, `@fastify/websocket`, `@fastify/rate-limit`, `@fastify/helmet`, `@fastify/cors`, `@fastify/cookie` | Built |
 | Validation | Zod 3, shared in `@cc/shared` | Built |
 | Database | `better-sqlite3` 13, WAL, `foreign_keys = ON` | Built |
-| Host metrics (Windows) | `systeminformation`; PowerShell for pending reboot, disk I/O and Event Log | Built |
+| Host metrics (Windows) | Node for CPU and memory; fixed PowerShell scripts with timeouts for swap, network, disk sizes, pending reboot, disk I/O and Event Log (F1: `systeminformation`'s own PowerShell calls had no timeout and hung) | Built |
 | Host metrics (Linux agent) | Direct reads of the host's `/proc` and `statfs` | Planned |
 | PM2 | Programmatic API in a worker thread | Built |
 | Docker (agent) | Docker Engine API over HTTP through `cc-docker-proxy` | Planned |
@@ -148,8 +148,9 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 
 | Collector | Interval | Source |
 |---|---|---|
-| `host` | 2 s | CPU, memory, swap, network (loopback excluded) |
-| `disk` | 10 s | `fsSize`; Windows fixed drives; optical (`cdfs`, `udf`, `iso9660`, `cd9660`) and `DISK_EXCLUDE` skipped; at most 8 volumes |
+| `host` | 2 s | CPU, memory, swap, network (loopback excluded). On Windows CPU and memory come from Node (`os.cpus`, `os.totalmem`, `os.freemem`) and swap and network from `swapnet`, so this collector starts no process (fix F1) |
+| `swapnet` | 15 s | Windows only: one PowerShell script for page file usage and `Get-NetAdapterStatistics` byte counters; rates from the change between samples; killed after 20 s |
+| `disk` | 10 s | `fsSize` (on Windows one PowerShell script on `Win32_LogicalDisk`, killed after 10 s, F1); Windows fixed drives; optical (`cdfs`, `udf`, `iso9660`, `cd9660`) and `DISK_EXCLUDE` skipped; at most 8 volumes |
 | `system` | 60 s | Uptime; pending reboot by PowerShell registry check on Windows |
 | `diskio`, `eventlog` | 10 s, 60 s | Windows only, PowerShell |
 | `pm2` | 5 s | `pm2.list` in a worker |

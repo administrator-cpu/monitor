@@ -4,6 +4,7 @@ import type { AppContext } from './context';
 import { eventLogCollector } from './collectors/eventlog';
 import { diskIoCollector } from './collectors/diskio';
 import { cpuMemCollector, diskCollector, systemCollector } from './collectors/host';
+import { SwapNetSampler, windowsHostSource } from './collectors/winhost';
 import { createContext, type ContextOverrides } from './context';
 import { migrate, openDb } from './db';
 import { createLogger } from './logger';
@@ -46,9 +47,14 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
   const ctx = createContext({ config, db, log, overrides: { sink, ...opts.overrides } });
   const app = await buildApp(ctx);
 
-  ctx.scheduler.register(cpuMemCollector(ctx.state));
-  ctx.scheduler.register(diskCollector(ctx.state, undefined, undefined, config.diskExclude));
-  ctx.scheduler.register(systemCollector(ctx.state));
+  // On Windows the host figures avoid systeminformation's PowerShell calls, which have no timeout
+  // (collectors/winhost.ts). Elsewhere systeminformation reads /proc and is used as is.
+  const swapNet = process.platform === 'win32' ? new SwapNetSampler() : null;
+  const hostSrc = swapNet ? windowsHostSource(swapNet) : undefined;
+  ctx.scheduler.register(cpuMemCollector(ctx.state, undefined, hostSrc));
+  ctx.scheduler.register(diskCollector(ctx.state, undefined, hostSrc, config.diskExclude));
+  ctx.scheduler.register(systemCollector(ctx.state, undefined, hostSrc));
+  if (swapNet) ctx.scheduler.register(swapNet.collector());
   if (process.platform === 'win32') {
     ctx.scheduler.register(diskIoCollector(ctx.state));
     ctx.scheduler.register(eventLogCollector({ db, state: ctx.state }));
