@@ -4,6 +4,7 @@ import type { StateStore } from '../state';
 import type { ProcessEvents } from './events';
 import type { Pm2Link } from './link';
 import type { ServiceRow, ServicesRepo } from './services';
+import { envPmId, isSelf } from './self';
 import type { Pm2Proc } from './types';
 
 const PRIORITY: Record<ProcessStatus, number> = {
@@ -91,10 +92,13 @@ export interface ProcessCollectorDeps {
   now?: () => number;
   /**
    * Retires services PM2 no longer lists (for example after `pm2 delete`). `minutes() <= 0` turns it
-   * off. Only runs when PM2 answered and listed at least one service, so a PM2 outage or an empty
-   * daemon cannot clear the dashboard; a name PM2 lists again is restored by discovery.
+   * off. Only runs when PM2 answered and listed at least one service other than the monitor itself
+   * and PM2 modules, so a PM2 outage, an empty daemon or a daemon that was resurrected with only
+   * `monitor-api` cannot clear the dashboard; a name PM2 lists again is restored by discovery.
    */
   autoArchive?: { minutes: () => number; archive: (svc: ServiceRow) => void };
+  /** PM2 id of the monitor's own process; defaults to the `pm_id` environment variable. */
+  ownPmId?: () => number | null;
 }
 
 /**
@@ -134,7 +138,9 @@ export function pm2Collector(d: ProcessCollectorDeps): CollectorDef {
           ...exitFor(d.events, g.name),
         });
       }
-      const archiveAfterMs = d.autoArchive && live.length > 0 ? Math.max(0, d.autoArchive.minutes()) * 60_000 : 0;
+      const own = (d.ownPmId ?? envPmId)();
+      const othersListed = procs.some((p) => !p.isModule && !isSelf(p, own));
+      const archiveAfterMs = d.autoArchive && othersListed ? Math.max(0, d.autoArchive.minutes()) * 60_000 : 0;
       for (const svc of d.services.list(false)) {
         if (seen.has(svc.pm2_name)) continue;
         if (archiveAfterMs > 0 && at - svc.last_seen_at > archiveAfterMs) {

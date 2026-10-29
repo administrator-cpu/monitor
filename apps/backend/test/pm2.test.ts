@@ -253,7 +253,7 @@ describe('ServicesRepo and the pm2 collector', () => {
   });
 
   describe('auto-archive of services PM2 no longer lists', () => {
-    function build(minutes: number, listed: Pm2Proc[]) {
+    function build(minutes: number, listed: Pm2Proc[], ownPmId: number | null = null) {
       const { services, clock } = setup();
       const state = new StateStore();
       const gone = services.discover('chatty');
@@ -266,9 +266,42 @@ describe('ServicesRepo and the pm2 collector', () => {
         events: new ProcessEvents(),
         now: () => clock.t,
         autoArchive: { minutes: () => minutes, archive: (svc) => archived.push(svc.pm2_name) },
+        ownPmId: () => ownPmId,
       });
       return { c, clock, state, archived, gone, services };
     }
+
+    it('does nothing when PM2 lists only the monitor itself (by name)', async () => {
+      const { c, clock, archived, state } = build(15, [proc({ name: 'monitor-api', pmId: 0 })]);
+      clock.t += 24 * 3_600_000;
+      await c.run();
+      expect(archived).toEqual([]);
+      expect(state.getProcessStates().find((s) => s.pm2Name === 'chatty')).toMatchObject({ status: 'stopped', instances: 0 });
+    });
+
+    it('does nothing when PM2 lists only the monitor itself (by PM2 id, under another name)', async () => {
+      const { c, clock, archived } = build(15, [proc({ name: 'cc-backend', pmId: 7 })], 7);
+      clock.t += 24 * 3_600_000;
+      await c.run();
+      expect(archived).toEqual([]);
+    });
+
+    it('does nothing when PM2 lists only the monitor and modules', async () => {
+      const { c, clock, archived } = build(15, [
+        proc({ name: 'monitor-api', pmId: 0 }),
+        proc({ name: 'pm2-logrotate', pmId: 1, isModule: true }),
+      ]);
+      clock.t += 24 * 3_600_000;
+      await c.run();
+      expect(archived).toEqual([]);
+    });
+
+    it('still archives when another service is listed next to the monitor', async () => {
+      const { c, clock, archived } = build(15, [proc({ name: 'monitor-api', pmId: 0 }), proc({ name: 'api', pmId: 1 })], 0);
+      clock.t += 16 * 60_000;
+      await c.run();
+      expect(archived).toEqual(['chatty']);
+    });
 
     it('archives a service PM2 has not listed for longer than the setting, and leaves it out of the view', async () => {
       const { c, clock, state, archived } = build(15, [proc({ name: 'api' })]);

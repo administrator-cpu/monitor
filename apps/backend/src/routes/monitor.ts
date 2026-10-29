@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import type { HostResponse, OverviewResponse } from '@cc/shared';
+import type { HostResponse, OverviewResponse, RangeLimitsResponse } from '@cc/shared';
 import type { AppContext } from '../context';
 import { requireUser } from '../guard';
+import { rangeLimits } from '../limits';
 
 export function monitorRoutes(app: FastifyInstance, ctx: AppContext): void {
   const user = { preHandler: requireUser(ctx) };
@@ -15,6 +16,9 @@ export function monitorRoutes(app: FastifyInstance, ctx: AppContext): void {
     logs: ctx.logs.status(),
     openIncidents: ctx.alerts.openCount(),
   }));
+
+  // The longest history and log search ranges, so the range pickers offer nothing the server would refuse.
+  app.get('/limits', user, async (): Promise<RangeLimitsResponse> => rangeLimits(ctx.settings));
 
   // The series comes from the in-memory ring buffer so a freshly opened page is never empty.
   app.get('/host', user, async (): Promise<HostResponse> => ({

@@ -3,7 +3,9 @@ import type { HistoryRange, HistoryResponse, ProcessEventDto } from '@cc/shared'
 import type { AppContext } from '../context';
 import type { FastifyReply } from 'fastify';
 import { requireUser } from '../guard';
+import { spanLabel } from '@cc/shared';
 import { fill, gridTimes, makeGrid, parseRange, type Column, type Grid } from '../history';
+import { rangeLimits } from '../limits';
 
 const MAX_POINTS = 600;
 const MAX_EVENTS = 200;
@@ -31,11 +33,17 @@ function rows<T>(ctx: AppContext, sql: string, ...args: (string | number)[]): T[
 
 export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
   const user = { preHandler: requireUser(ctx) };
+  // Metrics older than `retention.metrics_days` are deleted, so a longer range could only show nothing.
+  const range = (req: { query: unknown }) =>
+    parseRange(req.query as { from?: string; to?: string }, ctx.now(), rangeLimits(ctx.settings).historyMaxMs);
   const bad = (reply: FastifyReply) =>
-    reply.code(400).send({ error: 'invalid_request', message: 'The range must be positive and at most 31 days.' });
+    reply.code(400).send({
+      error: 'invalid_request',
+      message: `The range must be positive and at most ${spanLabel(rangeLimits(ctx.settings).historyMaxMs)}.`,
+    });
 
   app.get('/history/host', user, async (req, reply): Promise<HistoryResponse | void> => {
-    const r = parseRange(req.query as { from?: string; to?: string }, ctx.now());
+    const r = range(req);
     if (!r) return bad(reply);
     const g = makeGrid(r.from, r.to, MAX_POINTS);
     const host = rows<{ ts: number; cpu: number | null; core: number | null; mem: number | null; rx: number | null; tx: number | null }>(
@@ -66,7 +74,7 @@ export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
     const id = Number((req.params as { id: string }).id);
     const svc = Number.isInteger(id) && id > 0 ? ctx.services.get(id) : undefined;
     if (!svc) return reply.code(404).send({ error: 'not_found' });
-    const r = parseRange(req.query as { from?: string; to?: string }, ctx.now());
+    const r = range(req);
     if (!r) return bad(reply);
     const g = makeGrid(r.from, r.to, MAX_POINTS);
     const proc = rows<{ ts: number; cpu: number | null; mem: number | null; restarts: number | null }>(
@@ -94,7 +102,7 @@ export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.get('/history/nginx', user, async (req, reply): Promise<HistoryResponse | void> => {
-    const r = parseRange(req.query as { from?: string; to?: string }, ctx.now());
+    const r = range(req);
     if (!r) return bad(reply);
     const g = makeGrid(r.from, r.to, MAX_POINTS);
     const st = rows<{ ts: number; conn: number | null; rps: number | null }>(ctx, 'SELECT ts, active_conn AS conn, req_per_s AS rps FROM metrics_nginx WHERE ts >= ? AND ts < ? ORDER BY ts', g.from, g.to);
@@ -111,7 +119,7 @@ export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.get('/history/mongo', user, async (req, reply): Promise<HistoryResponse | void> => {
-    const r = parseRange(req.query as { from?: string; to?: string }, ctx.now());
+    const r = range(req);
     if (!r) return bad(reply);
     const g = makeGrid(r.from, r.to, MAX_POINTS);
     const m = rows<Record<string, number | null> & { ts: number }>(

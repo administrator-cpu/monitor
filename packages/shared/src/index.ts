@@ -678,8 +678,6 @@ export interface NginxState {
   waiting: number;
   reqPerS: number;
   perService: NginxServiceState[];
-  topPaths: { path: string; count: number }[];
-  topClientIps: { ip: string; count: number }[];
   /** Access-log lines that could not be parsed (skipped, never fatal). */
   malformedLines: number;
   linesTotal: number;
@@ -915,6 +913,44 @@ export interface HistoryResponse {
   series: Record<string, (number | null)[]>;
   /** Restarts, crashes and similar moments inside the range (service history only). */
   events?: ProcessEventDto[];
+}
+
+/**
+ * The longest ranges the server accepts, taken from the retention settings at the time of the request,
+ * so a range never reaches past data that has already been deleted.
+ */
+export interface RangeLimitsResponse {
+  /** `retention.metrics_days` in milliseconds: the longest range the history routes accept. */
+  historyMaxMs: number;
+  /** `logs.retention_hours` in milliseconds: the longest range log search accepts. */
+  logSearchMaxMs: number;
+}
+
+/** A span in words: "1 hour", "1.5 hours", "24 hours", "7 days". Whole days are shown as days from 2 days up. */
+export function spanLabel(ms: number): string {
+  const DAY = 86_400_000;
+  if (ms >= 2 * DAY && ms % DAY === 0) return `${ms / DAY} days`;
+  const h = Math.round((ms / 3_600_000) * 100) / 100;
+  return `${h} hour${h === 1 ? '' : 's'}`;
+}
+
+export interface RangeOption {
+  id: string;
+  label: string;
+  ms: number;
+}
+
+/**
+ * The presets a range picker may offer under a server limit: those no longer than `maxMs`, plus
+ * `maxMs` itself as a last option when it falls between presets (a 48 hour log retention gets
+ * "48 hours" after "24 hours"). With the limit not loaded yet, the presets are offered unchanged;
+ * the server still refuses anything too long.
+ */
+export function capRanges(presets: readonly RangeOption[], maxMs: number | undefined, label: (ms: number) => string): RangeOption[] {
+  if (maxMs === undefined || !(maxMs > 0)) return [...presets];
+  const fit = presets.filter((p) => p.ms <= maxMs);
+  const top = fit.length > 0 ? fit[fit.length - 1]!.ms : 0;
+  return top < maxMs ? [...fit, { id: 'max', label: label(maxMs), ms: maxMs }] : fit;
 }
 
 export const LOG_SEARCH_MAX_CONTEXT = 5;

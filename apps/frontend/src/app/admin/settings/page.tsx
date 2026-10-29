@@ -11,6 +11,7 @@ const GROUPS: [string, string][] = [
   ['alert.', 'Alert email'],
   ['logs.', 'Logs'],
   ['retention.', 'Retention'],
+  ['backup.', 'Backups'],
   ['pm2.', 'Services'],
   ['session.', 'Sessions'],
   ['login.', 'Sign-in protection'],
@@ -28,6 +29,7 @@ const HELP: Record<string, string> = {
   'github.poll_minutes': 'How often GitHub is asked about each service that has a repository set. Needs GITHUB_TOKEN in the server .env.',
   'actions.stop_mute_minutes': 'Stopping a service from the dashboard silences its "service down" alert for this long (lifted when you start it). 0 turns it off.',
   'retention.email_days': 'Resend delivery counts (per sender domain) are kept this many days.',
+  'backup.keep': 'Nightly database backups (written at 02:30 server time to BACKUP_DIR) kept on the server. Older ones are deleted after each new backup.',
 };
 
 function Row({ s, onSaved }: { s: SettingEntry; onSaved: () => void }) {

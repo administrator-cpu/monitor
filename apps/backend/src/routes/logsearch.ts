@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { logSearchSchema, type LogSearchResponse } from '@cc/shared';
+import { logSearchSchema, spanLabel, type LogSearchResponse } from '@cc/shared';
 import type { AppContext } from '../context';
 import { requireUser } from '../guard';
+import { rangeLimits } from '../limits';
 import { safeDirName } from '../logs/files';
 import { regexProblem } from '../logs/search';
 import { SearchBusyError } from '../logs/searcher';
 
-const MAX_RANGE_MS = 7 * 86_400_000;
 const SPECIAL = new Set(['_nginx', '_monitor']);
 
 export function logSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -15,8 +15,10 @@ export function logSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
     const parsed = logSearchSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_request', message: 'The search request is not valid.' });
     const q = parsed.data;
-    if (q.from >= q.to || q.to - q.from > MAX_RANGE_MS) {
-      return reply.code(400).send({ error: 'invalid_request', message: 'The time range must be positive and at most 7 days.' });
+    // Log files older than `logs.retention_hours` are deleted, so a longer range would scan nothing more.
+    const maxMs = rangeLimits(ctx.settings).logSearchMaxMs;
+    if (q.from >= q.to || q.to - q.from > maxMs) {
+      return reply.code(400).send({ error: 'invalid_request', message: `The time range must be positive and at most ${spanLabel(maxMs)}.` });
     }
     if (q.regex && q.query !== '') {
       const problem = regexProblem(q.query);

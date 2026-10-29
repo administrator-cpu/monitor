@@ -134,30 +134,10 @@ function Nginx() {
         ) : (
           <div className="empty">No requests in the last minute.</div>
         )}
+        <div className="muted" style={{ fontSize: '0.8rem', marginTop: 8 }} data-testid="nginx-privacy-note">
+          Request paths and client addresses are not logged, so they are not counted here.
+        </div>
       </section>
-
-      <div className="grid two" style={{ marginTop: 14 }}>
-        <section className="card" aria-label="Top paths">
-          <h2>Top paths · this hour</h2>
-          {nginx && nginx.topPaths.length > 0 ? (
-            <div className="table-wrap"><table><tbody>
-              {nginx.topPaths.slice(0, 15).map((p) => (
-                <tr key={p.path}><td className="num" style={{ wordBreak: 'break-all' }}>{p.path}</td><td className="num">{p.count.toLocaleString()}</td></tr>
-              ))}
-            </tbody></table></div>
-          ) : <div className="empty">No data yet.</div>}
-        </section>
-        <section className="card" aria-label="Top client addresses">
-          <h2>Top client addresses · this hour</h2>
-          {nginx && nginx.topClientIps.length > 0 ? (
-            <div className="table-wrap"><table><tbody>
-              {nginx.topClientIps.slice(0, 15).map((p) => (
-                <tr key={p.ip}><td className="num">{p.ip}</td><td className="num">{p.count.toLocaleString()}</td></tr>
-              ))}
-            </tbody></table></div>
-          ) : <div className="empty">No data yet.</div>}
-        </section>
-      </div>
 
       <section className="card" aria-label="Certificates" style={{ marginTop: 14 }}>
         <h2>TLS certificates</h2>

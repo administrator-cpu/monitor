@@ -1,5 +1,4 @@
-import { hourStart } from '../logs/files';
-import { pathOf, type AccessRecord } from './parse';
+import type { AccessRecord } from './parse';
 
 export const WINDOW_MS = 10_000;
 /** Response-time samples kept per service per window (a uniform sample when there are more). */
@@ -39,71 +38,24 @@ export function percentile(sorted: number[], p: number): number {
   return sorted[idx] as number;
 }
 
-/** A counter map that cannot grow past a bound: when it fills up, the smaller half is dropped. */
-class BoundedCounter {
-  private m = new Map<string, number>();
-  constructor(private readonly keep: () => number) {}
-
-  add(k: string): void {
-    this.m.set(k, (this.m.get(k) ?? 0) + 1);
-    if (this.m.size > this.keep() * 4) this.prune();
-  }
-
-  private prune(): void {
-    const top = [...this.m.entries()].sort((a, b) => b[1] - a[1]).slice(0, this.keep() * 2);
-    this.m = new Map(top);
-  }
-
-  top(n: number): { key: string; count: number }[] {
-    return [...this.m.entries()]
-      .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-      .slice(0, n)
-      .map(([key, count]) => ({ key, count }));
-  }
-
-  clear(): void {
-    this.m.clear();
-  }
-
-  get size(): number {
-    return this.m.size;
-  }
-}
-
 /**
  * Turns access-log records into 10 s windows per service. Windows are keyed by the time the line
  * was read (the tailer polls every second), so a wrong clock in the log cannot misplace data.
- * Top paths and client addresses are bounded counters reset every hour (never stored per request).
+ * Paths and client addresses are not counted: the privacy log format carries neither.
  */
 export class NginxAggregator {
   private open = new Map<number, Map<number, Acc>>();
-  private paths: BoundedCounter;
-  private ips: BoundedCounter;
-  private hour = -1;
   malformedLines = 0;
   linesTotal = 0;
   lastLineAt: number | null = null;
-
-  constructor(private readonly topN: () => number) {
-    this.paths = new BoundedCounter(topN);
-    this.ips = new BoundedCounter(topN);
-  }
 
   malformed(n = 1): void {
     this.malformedLines += n;
   }
 
   add(rec: AccessRecord, serviceId: number, at: number): void {
-    const h = hourStart(at);
-    if (h !== this.hour) {
-      this.hour = h;
-      this.paths.clear();
-      this.ips.clear();
-    }
     this.linesTotal += 1;
     this.lastLineAt = at;
-    this.paths.add(pathOf(rec.uri));
-    if (rec.ip) this.ips.add(rec.ip);
 
     const bucket = Math.floor(at / WINDOW_MS) * WINDOW_MS;
     let w = this.open.get(bucket);
@@ -153,13 +105,5 @@ export class NginxAggregator {
       out.push({ ts, services, requests });
     }
     return out;
-  }
-
-  topPaths(): { path: string; count: number }[] {
-    return this.paths.top(this.topN()).map((x) => ({ path: x.key, count: x.count }));
-  }
-
-  topClientIps(): { ip: string; count: number }[] {
-    return this.ips.top(this.topN()).map((x) => ({ ip: x.key, count: x.count }));
   }
 }

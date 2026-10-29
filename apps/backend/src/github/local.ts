@@ -13,12 +13,21 @@ export type LocalRead = (dir: string) => Promise<LocalCommit | { error: string }
 
 const SHA = /^[0-9a-f]{40}$/;
 
+/**
+ * The full argument list for one git call. Both `-c` options override the repository's own config:
+ * - safe.directory: the monitor may run as a different Windows user than the folder's owner.
+ * - core.fsmonitor=false: a repository could otherwise name a program in `core.fsmonitor` that
+ *   `git status` starts as the backend's account.
+ */
+export function gitArgs(dir: string, args: readonly string[]): string[] {
+  return ['-c', 'safe.directory=*', '-c', 'core.fsmonitor=false', '-C', dir, ...args];
+}
+
 function git(dir: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      // safe.directory: the monitor may run as a different Windows user than the folder's owner.
-      ['-c', 'safe.directory=*', '-C', dir, ...args],
+      gitArgs(dir, args),
       { timeout: 10_000, windowsHide: true, maxBuffer: 1_000_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
       (err, stdout) => (err ? reject(err) : resolve(stdout.toString())),
     );

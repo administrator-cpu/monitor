@@ -2,6 +2,7 @@ import type { ServiceAction, ServiceActionResponse } from '@cc/shared';
 import type { AlertRepo } from '../alerts/repo';
 import type { Audit } from '../audit';
 import type { Pm2Link } from './link';
+import { envPmId, SELF_NAMES } from './self';
 import type { ServiceRow } from './services';
 import type { Pm2Proc } from './types';
 
@@ -36,17 +37,13 @@ export interface ActionDeps {
   cooldownMs?: number;
 }
 
-/** The monitor never acts on itself: a restart would cut the request, and deploys manage it. */
-const SELF_NAMES = new Set(['monitor-api']);
+
+/** Every mute a dashboard Stop creates has a reason starting with this; Start finds them by it. */
+export const STOP_MUTE_REASON = 'Stopped from the dashboard by ';
 
 const isRunning = (p: Pm2Proc): boolean => p.status === 'online';
 const isStopped = (p: Pm2Proc): boolean => p.status === 'stopped';
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function envPmId(): number | null {
-  const v = process.env.pm_id;
-  return v !== undefined && /^\d+$/.test(v) ? Number(v) : null;
-}
 
 /**
  * Start, stop and restart for services that are registered here. The caller supplies only a
@@ -56,12 +53,13 @@ function envPmId(): number | null {
 export class ServiceActions {
   private readonly busy = new Set<number>();
   private readonly last = new Map<number, number>();
-  /** Mutes this feature created, so starting the service again can lift them. */
-  private readonly muteOf = new Map<number, number>();
 
   constructor(private readonly d: ActionDeps) {}
 
-  /** Why this service cannot be operated, or null when it can. Used by the detail page too. */
+  /**
+   * Why this service cannot be operated, or null when it can. Used by the detail page too. The
+   * monitor never acts on itself: a restart would cut the request, and deploys manage it.
+   */
   blockedReason(svc: ServiceRow, procs: Pm2Proc[] | null): string | null {
     if (!this.d.link) return 'PM2 monitoring is switched off on the server.';
     if (SELF_NAMES.has(svc.pm2_name.toLowerCase())) return 'The monitor cannot restart itself. It is updated by the deploy pipeline.';
@@ -170,27 +168,34 @@ export class ServiceActions {
   private muteDown(svc: ServiceRow, actor: Actor): number {
     const minutes = this.d.stopMuteMinutes();
     if (minutes <= 0) return 0;
-    const rule = this.d.alertRepo.listRules().find((r) => r.key === 'pm2.service_down');
+    const rule = this.serviceDownRule();
     if (!rule) return 0;
     this.unmute(svc.id);
     const now = this.d.now();
-    const m = this.d.alertRepo.insertMute({
+    this.d.alertRepo.insertMute({
       starts_at: now,
       ends_at: now + minutes * 60_000,
       service_id: svc.id,
       category: null,
       rule_id: rule.id,
-      reason: `Stopped from the dashboard by ${actor.username}`,
+      reason: `${STOP_MUTE_REASON}${actor.username}`,
       created_by: actor.id,
     });
-    this.muteOf.set(svc.id, m.id);
     return minutes;
   }
 
+  /**
+   * Lifts the mutes earlier Stops put on this service. They are looked up in the database, not
+   * kept in memory, so this also works after the monitor has restarted. Mutes an admin made by hand
+   * have a different reason and are left alone.
+   */
   private unmute(serviceId: number): void {
-    const id = this.muteOf.get(serviceId);
-    if (id === undefined) return;
-    this.muteOf.delete(serviceId);
-    this.d.alertRepo.deleteMute(id);
+    const rule = this.serviceDownRule();
+    if (!rule) return;
+    this.d.alertRepo.deleteServiceMutes(serviceId, rule.id, STOP_MUTE_REASON, this.d.now());
+  }
+
+  private serviceDownRule() {
+    return this.d.alertRepo.listRules().find((r) => r.key === 'pm2.service_down');
   }
 }

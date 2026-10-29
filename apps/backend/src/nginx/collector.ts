@@ -44,7 +44,6 @@ export interface NginxLogDeps {
   state: StateStore;
   services: ServicesRepo;
   pipeline: LogPipeline;
-  topN: () => number;
   now?: () => number;
   warn?: (o: Record<string, unknown>, m: string) => void;
   /** Tests start from the beginning of an existing file. */
@@ -65,7 +64,7 @@ export function nginxLogCollector(d: NginxLogDeps): NginxLogCollector {
   const now = d.now ?? Date.now;
   const access = new LogTailer(d.accessLog, { startAtEnd: d.startAtEnd ?? true });
   const errors = d.errorLog ? new LogTailer(d.errorLog, { startAtEnd: d.startAtEnd ?? true }) : null;
-  const aggregator = new NginxAggregator(d.topN);
+  const aggregator = new NginxAggregator();
 
   const rules = (): MatchRule[] =>
     d.services
@@ -109,8 +108,6 @@ export function nginxLogCollector(d: NginxLogDeps): NginxLogCollector {
       d.state.addNginxWindows(aggregator.advance(at));
       d.state.setNginxLog({
         at,
-        topPaths: aggregator.topPaths(),
-        topClientIps: aggregator.topClientIps(),
         malformedLines: aggregator.malformedLines,
         linesTotal: aggregator.linesTotal,
         lastLineAt: aggregator.lastLineAt,

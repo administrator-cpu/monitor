@@ -67,6 +67,11 @@ const schema = z.object({
     .string()
     .min(1)
     .default(isWin ? 'E:\\monitor-logs' : path.resolve(process.cwd(), 'data', 'monitor-logs')),
+  /**
+   * Folder for the nightly database backups. Defaults to E:\monitor-backups on Windows and to off
+   * elsewhere; `off` switches the job off.
+   */
+  BACKUP_DIR: z.string().min(1).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /** The log folder must not be on the system drive (TRD 4.3). Defaults to on in production. */
   LOG_REQUIRE_SEPARATE_VOLUME: boolish.optional(),
@@ -130,6 +135,8 @@ export interface Config {
   cookieName: string;
   sqlitePath: string;
   logRoot: string;
+  /** Nightly backup folder, null when the job is off. */
+  backupDir: string | null;
   logLevel: string;
   logRequireSeparateVolume: boolean;
   pm2Enabled: boolean;
@@ -187,6 +194,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     cookieName: cookieSecure ? '__Host-session' : 'cc_session',
     sqlitePath: v.SQLITE_PATH,
     logRoot: v.LOG_ROOT,
+    backupDir:
+      v.BACKUP_DIR === undefined ? (isWin ? 'E:\\monitor-backups' : null) : v.BACKUP_DIR.toLowerCase() === 'off' ? null : v.BACKUP_DIR,
     logLevel: v.LOG_LEVEL,
     logRequireSeparateVolume: v.LOG_REQUIRE_SEPARATE_VOLUME ?? v.NODE_ENV === 'production',
     pm2Enabled: v.PM2_ENABLED,
@@ -217,6 +226,7 @@ export function describeConfig(c: Config): Record<string, unknown> {
     cookieSecure: c.cookieSecure,
     sqlitePath: c.sqlitePath,
     logRoot: c.logRoot,
+    backupDir: c.backupDir ?? 'off',
     logRequireSeparateVolume: c.logRequireSeparateVolume,
     pm2Enabled: c.pm2Enabled,
     pm2Home: c.pm2Home ?? '(default)',

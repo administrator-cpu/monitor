@@ -14,6 +14,7 @@ import { startIngest, type IngestServer } from './agent/ingest';
 import { LogBackfill } from './pm2/backfill';
 import { nginxLogCollector, nginxStatusCollector, tlsCollector, tlsHostsFor } from './nginx/collector';
 import { pm2Collector } from './pm2/collector';
+import { backupJob } from './backup';
 import { runRetention } from './retention';
 import { runRollup } from './rollup';
 import { buildApp } from './server';
@@ -90,7 +91,6 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
       state: ctx.state,
       services: ctx.services,
       pipeline: ctx.logs.pipeline,
-      topN: () => ctx.settings.get('nginx.top_n'),
       warn: (o, m) => log.warn(o, m),
     });
     ctx.scheduler.register(nginxLog);
@@ -148,6 +148,11 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
       runRetention(db, ctx.settings, Date.now());
     },
   });
+  if (config.backupDir) {
+    ctx.scheduler.register(backupJob({ db, settings: ctx.settings, dir: config.backupDir, now: Date.now }));
+  } else {
+    log.warn('BACKUP_DIR is off: no nightly database backup');
+  }
   ctx.scheduler.register(ctx.git.collector());
   ctx.scheduler.register({ name: 'alerts', intervalMs: 5_000, async run() { ctx.alerts.run(); } });
 

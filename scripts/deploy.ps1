@@ -24,7 +24,9 @@ param(
   [string]$SourceDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
   [string]$DeployDir = 'C:\Apps\command-center-deploy',
   [string]$PrevDir = 'C:\Apps\command-center-deploy.prev',
-  [string]$BackupDir = 'C:\monitor\backups',
+  # Off the system drive (H7). The nightly backups are in the parent folder; this script only
+  # creates and prunes its own monitor-<date>-<time>-<sha>.db files here.
+  [string]$BackupDir = 'E:\monitor-backups\deploy',
   [string]$DbPath = 'C:\monitor\data\monitor.db',
   [string]$PmName = 'monitor-api',
   [string]$Pm2Home = 'C:\Users\Administrator\.pm2',
@@ -39,7 +41,7 @@ $env:PM2_HOME = $Pm2Home
 # A manual run has no commit id passed in: ask git, so the dashboard can show what is deployed.
 if (-not $Sha) {
   try {
-    $found = (& git -C $SourceDir rev-parse HEAD 2>$null)
+    $found = (& git -c core.fsmonitor=false -C $SourceDir rev-parse HEAD 2>$null)
     if ($LASTEXITCODE -eq 0 -and $found -match '^[0-9a-f]{40}$') { $Sha = $found.Trim() }
   } catch { }
 }

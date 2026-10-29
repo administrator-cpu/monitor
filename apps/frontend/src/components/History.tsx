@@ -4,24 +4,32 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import type { AlignedData } from 'uplot';
-import type { HistoryResponse, IncidentDto, WindowsEventsResponse } from '@cc/shared';
+import { capRanges, spanLabel, type HistoryResponse, type IncidentDto, type RangeLimitsResponse, type RangeOption, type WindowsEventsResponse } from '@cc/shared';
 import { UPlotChart } from '@/components/UPlotChart';
 import { fetcher } from '@/lib/api';
 import { dateTime, duration } from '@/lib/format';
 
-export const RANGES = [
+export const RANGES: readonly RangeOption[] = [
   { id: '1h', label: '1 hour', ms: 3_600_000 },
   { id: '6h', label: '6 hours', ms: 6 * 3_600_000 },
   { id: '24h', label: '24 hours', ms: 24 * 3_600_000 },
   { id: '3d', label: '3 days', ms: 3 * 86_400_000 },
   { id: '7d', label: '7 days', ms: 7 * 86_400_000 },
-] as const;
-export type RangeId = (typeof RANGES)[number]['id'];
+];
 
-export function RangePicker({ value, onChange }: { value: RangeId; onChange: (v: RangeId) => void }) {
+/**
+ * The ranges to offer: none longer than `retention.metrics_days`, since older metrics are deleted
+ * and the server refuses a longer range.
+ */
+function useHistoryRanges(): RangeOption[] {
+  const { data } = useSWR<RangeLimitsResponse>('/limits', fetcher, { revalidateOnFocus: false });
+  return useMemo(() => capRanges(RANGES, data?.historyMaxMs, spanLabel), [data?.historyMaxMs]);
+}
+
+export function RangePicker({ ranges, value, onChange }: { ranges: RangeOption[]; value: string; onChange: (v: string) => void }) {
   return (
     <div className="range-picker" role="group" aria-label="Time range">
-      {RANGES.map((r) => (
+      {ranges.map((r) => (
         <button
           key={r.id}
           type="button"
@@ -36,15 +44,21 @@ export function RangePicker({ value, onChange }: { value: RangeId; onChange: (v:
   );
 }
 
-/** A range that ends "now" is recomputed on each refresh; `to` is rounded so SWR keys stay stable for a minute. */
-function useRange(id: RangeId): { from: number; to: number } {
+/**
+ * A range that ends "now" is recomputed on each refresh; `to` is rounded up to the next minute so SWR
+ * keys stay stable for a minute, and `from` is exactly `ms` before it, so the longest option still
+ * fits the server's limit.
+ */
+function useRange(ms: number): { from: number; to: number } {
   const [tick, setTick] = useState(() => Math.floor(Date.now() / 60_000));
   useEffect(() => {
     const t = setInterval(() => setTick(Math.floor(Date.now() / 60_000)), 60_000);
     return () => clearInterval(t);
   }, []);
-  const ms = RANGES.find((r) => r.id === id)!.ms;
-  return useMemo(() => ({ from: tick * 60_000 - ms, to: tick * 60_000 + 60_000 }), [tick, ms]);
+  return useMemo(() => {
+    const to = tick * 60_000 + 60_000;
+    return { from: to - ms, to };
+  }, [tick, ms]);
 }
 
 export interface ChartSpec {
@@ -80,8 +94,11 @@ function HistoryChart({ data, spec }: { data: HistoryResponse; spec: ChartSpec }
 
 /** Range picker plus a set of charts for one history endpoint. */
 export function HistoryPanel({ path, charts, heading = 'History', children }: { path: string; charts: ChartSpec[]; heading?: string; children?: (r: HistoryResponse, range: { from: number; to: number }) => React.ReactNode }) {
-  const [rangeId, setRangeId] = useState<RangeId>('24h');
-  const range = useRange(rangeId);
+  const ranges = useHistoryRanges();
+  const [rangeId, setRangeId] = useState('24h');
+  // A choice the limit no longer allows (the setting was lowered) falls back to the longest one allowed.
+  const chosen = ranges.find((r) => r.id === rangeId) ?? ranges[ranges.length - 1]!;
+  const range = useRange(chosen.ms);
   const { data, error } = useSWR<HistoryResponse>(`${path}?from=${range.from}&to=${range.to}`, fetcher, {
     refreshInterval: 60_000,
     keepPreviousData: true,
@@ -90,7 +107,7 @@ export function HistoryPanel({ path, charts, heading = 'History', children }: { 
     <section style={{ marginTop: 22 }} aria-label={heading} data-testid="history-panel">
       <div className="card-head" style={{ marginBottom: 10 }}>
         <h2>{heading}</h2>
-        <RangePicker value={rangeId} onChange={setRangeId} />
+        <RangePicker ranges={ranges} value={chosen.id} onChange={setRangeId} />
       </div>
       {error && <div className="banner crit" role="alert">Could not load history: {error.message}</div>}
       {data && (

@@ -24,6 +24,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     cookieName: 'cc_session',
     sqlitePath: ':memory:',
     logRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'cc-logs-')),
+    backupDir: null,
     logLevel: 'silent',
     logRequireSeparateVolume: false,
     pm2Enabled: false,

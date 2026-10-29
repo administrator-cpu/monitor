@@ -4,6 +4,7 @@ import path from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { capRanges, spanLabel } from '@cc/shared';
 import { hourKey, safeDirName } from '../src/logs/files';
 import { makeMatcher, regexProblem, runSearch, selectFiles, type SearchJob } from '../src/logs/search';
 import { LogSearcher, SearchBusyError } from '../src/logs/searcher';
@@ -254,6 +255,68 @@ describe('POST /logs/search', () => {
     } finally {
       await t.close();
     }
+  });
+
+  it('accepts at most logs.retention_hours, and follows a changed setting at once', async () => {
+    const t = await makeApp({ config: { logRoot: root } });
+    try {
+      writeLog('api', T0, [{ ts: T0 + 1, msg: 'hello' }]);
+      t.ctx.services.discover('api');
+      await addUser(t, { role: 'engineer' });
+      const { cookie } = await login(t);
+      const span = (ms: number) => post(t, cookie!, { services: ['api'], from: T0 + H - ms, to: T0 + H });
+
+      // Default 24 hours: exactly 24 hours is accepted, one millisecond more is not (the old limit was 7 days).
+      expect((await span(24 * H)).statusCode).toBe(200);
+      const over = await span(24 * H + 1);
+      expect(over.statusCode).toBe(400);
+      expect(over.json().message).toBe('The time range must be positive and at most 24 hours.');
+      expect((await span(3 * 24 * H)).statusCode).toBe(400);
+
+      // Lowered to 6 hours.
+      t.ctx.settings.setMany({ 'logs.retention_hours': 6 }, null);
+      expect((await span(6 * H)).statusCode).toBe(200);
+      expect((await span(12 * H)).json().message).toBe('The time range must be positive and at most 6 hours.');
+
+      // Raised to 7 days (the setting's maximum).
+      t.ctx.settings.setMany({ 'logs.retention_hours': 168 }, null);
+      expect((await span(7 * 24 * H)).statusCode).toBe(200);
+      expect((await span(7 * 24 * H + 1)).json().message).toBe('The time range must be positive and at most 7 days.');
+
+      // A refused range is not audited as a search.
+      const audited = t.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE event = 'log_search'").get() as { n: number };
+      expect(audited.n).toBe(3);
+    } finally {
+      await t.close();
+    }
+  });
+});
+
+describe('range picker limits', () => {
+  const DAY = 24 * H;
+  const presets = [
+    { id: '1h', label: '1 hour', ms: H },
+    { id: '24h', label: '24 hours', ms: DAY },
+    { id: '7d', label: '7 days', ms: 7 * DAY },
+  ];
+  const ids = (maxMs: number | undefined) => capRanges(presets, maxMs, spanLabel).map((r) => `${r.id}:${r.label}`);
+
+  it('offers nothing longer than the limit, and the limit itself when it falls between presets', () => {
+    expect(ids(7 * DAY)).toEqual(['1h:1 hour', '24h:24 hours', '7d:7 days']);
+    expect(ids(3 * DAY)).toEqual(['1h:1 hour', '24h:24 hours', 'max:3 days']);
+    expect(ids(DAY)).toEqual(['1h:1 hour', '24h:24 hours']);
+    expect(ids(30 * DAY)).toEqual(['1h:1 hour', '24h:24 hours', '7d:7 days', 'max:30 days']);
+    expect(ids(1.5 * H)).toEqual(['1h:1 hour', 'max:1.5 hours']);
+    expect(ids(30 * 60_000)).toEqual(['max:0.5 hours']); // never an empty picker
+    expect(ids(undefined)).toEqual(['1h:1 hour', '24h:24 hours', '7d:7 days']); // not loaded yet
+  });
+
+  it('labels spans in hours, and whole days from 2 days up', () => {
+    expect(spanLabel(H)).toBe('1 hour');
+    expect(spanLabel(DAY)).toBe('24 hours');
+    expect(spanLabel(48 * H)).toBe('2 days');
+    expect(spanLabel(36 * H)).toBe('36 hours');
+    expect(spanLabel(168 * H)).toBe('7 days');
   });
 });
 

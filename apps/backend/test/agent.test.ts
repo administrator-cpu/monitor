@@ -362,10 +362,19 @@ describe('history grid', () => {
   });
 
   it('rejects an empty, reversed or over-long range', () => {
-    expect(parseRange({}, 10_000_000)).toEqual({ from: 6_400_000, to: 10_000_000 });
-    expect(parseRange({ from: '5', to: '1' }, 10)).toBeNull();
-    expect(parseRange({ from: '0', to: String(40 * 86_400_000) }, 10)).toBeNull();
-    expect(parseRange({ from: 'abc', to: '9000000' }, 10_000_000)).toEqual({ from: 5_400_000, to: 9_000_000 }); // junk falls back to the default
+    const WEEK = 7 * 86_400_000;
+    expect(parseRange({}, 10_000_000, WEEK)).toEqual({ from: 6_400_000, to: 10_000_000 });
+    expect(parseRange({ from: '5', to: '1' }, 10, WEEK)).toBeNull();
+    expect(parseRange({ from: '0', to: String(40 * 86_400_000) }, 10, WEEK)).toBeNull();
+    expect(parseRange({ from: 'abc', to: '9000000' }, 10_000_000, WEEK)).toEqual({ from: 5_400_000, to: 9_000_000 }); // junk falls back to the default
+  });
+
+  it('caps the range at the limit it is given, and never defaults past it', () => {
+    const HOUR = 3_600_000;
+    const to = 100 * HOUR;
+    expect(parseRange({ from: String(to - 2 * HOUR), to: String(to) }, to, 2 * HOUR)).toEqual({ from: to - 2 * HOUR, to }); // exactly the limit
+    expect(parseRange({ from: String(to - 2 * HOUR - 1), to: String(to) }, to, 2 * HOUR)).toBeNull(); // 1 ms over
+    expect(parseRange({}, to, 30 * 60_000)).toEqual({ from: to - 30 * 60_000, to }); // a 1 hour default shrinks to a 30 minute limit
   });
 });
 
