@@ -39,7 +39,7 @@ $env:PM2_HOME = $Pm2Home
 # A manual run has no commit id passed in: ask git, so the dashboard can show what is deployed.
 if (-not $Sha) {
   try {
-    $found = (& git -C $SourceDir rev-parse HEAD 2>$null)
+    $found = (& git -c core.fsmonitor=false -C $SourceDir rev-parse HEAD 2>$null)
     if ($LASTEXITCODE -eq 0 -and $found -match '^[0-9a-f]{40}$') { $Sha = $found.Trim() }
   } catch { }
 }

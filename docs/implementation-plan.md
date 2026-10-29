@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2, H3 and H4 code done on the same branch, server checks pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H5 code done on the same branch, server checks pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -181,7 +181,9 @@ Done as patch 0004. A `nginx.top_n` row already stored in the production databas
 
 #### H5: Git arguments (0.1 day)
 
-- [ ] Add `-c core.fsmonitor=false` to every git call in `github/local.ts`; test the argument list.
+- [x] Add `-c core.fsmonitor=false` to every git call in `github/local.ts`; test the argument list.
+
+Done as patch 0005. The arguments are built in one place (`gitArgs`), so every call gets both `-c` options before `-C`. A second test plants a program in a repository's `core.fsmonitor`, checks that a plain `git status` starts it, and checks that `readLocalCommit` does not. `deploy.ps1` passes the same option to its one `git rev-parse`. No server check beyond V3 and V16: the git status card still shows the commit.
 
 #### H6: Stop mute after a restart (0.25 day)
 
@@ -397,7 +399,7 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | 5 | Log search accepts 7 days, files kept 24 hours | `routes/logsearch.ts` `MAX_RANGE_MS` | H3 |
 | 6 | History accepts 31 days, metrics kept 7 days | `history.ts` `MAX_RANGE_MS` | H3 |
 | 7 | Top paths count everything as `/`; top IPs always empty; page still shows both | `nginx/aggregate.ts`, `nginx/page.tsx` | H4 |
-| 8 | `git status` can start a program configured by the repository (`core.fsmonitor`) | `github/local.ts` | H5 |
+| 8 | `git status` can start a program configured by the repository (`core.fsmonitor`) | `github/local.ts` | H5 (fixed) |
 | 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 |
 | 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 |
 | 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 |

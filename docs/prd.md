@@ -302,7 +302,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | `/health` public, shallow, rate limited | Built |
 | `/webhooks/resend`: Svix signature, 5-minute window, duplicate ids, 120 per minute | Built |
 | PM2 actions: `can_operate`, server-side resolution, confirmation, one at a time, cooldown, `monitor-api` excluded, audited | Built |
-| Read-only `GITHUB_TOKEN`; git run without a shell, fixed arguments | Built; add `core.fsmonitor=false` (H5) |
+| Read-only `GITHUB_TOKEN`; git run without a shell, fixed arguments, `core.fsmonitor=false` | Built (H5 fixed) |
 | Protected `main` branch (no direct pushes) | Planned (H1) |
 | Off-drive and offsite database backups, tested restore | Planned (H7) |
 | Nginx `limit_req` on `/webhooks/` and `/agent/` | Planned (H8, M1) |

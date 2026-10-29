@@ -1,9 +1,10 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { GitHubClient } from '../src/github/client';
-import { readLocalCommit } from '../src/github/local';
+import { gitArgs, readLocalCommit } from '../src/github/local';
 import { addUser, authed, login, makeApp, type TestApp } from './helpers';
 
 const A = 'a'.repeat(40);
@@ -104,6 +105,42 @@ describe('readLocalCommit', () => {
     fs.writeFileSync(path.join(d, '.deploy-sha'), '');
     expect(await readLocalCommit(d)).toHaveProperty('error');
     expect(await readLocalCommit(path.join(d, 'nope'))).toMatchObject({ error: expect.stringContaining('does not exist') });
+  });
+
+  it('turns off core.fsmonitor and trusts the folder on every call, before -C', () => {
+    const args = gitArgs('C:\\repo', ['status', '--porcelain']);
+    expect(args).toEqual(['-c', 'safe.directory=*', '-c', 'core.fsmonitor=false', '-C', 'C:\\repo', 'status', '--porcelain']);
+  });
+
+  const hasGit = (() => {
+    try {
+      execFileSync('git', ['--version'], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.skipIf(!hasGit || process.platform === 'win32')('does not start a program named in the repository\'s core.fsmonitor', async () => {
+    const d = tmp();
+    const run = (...a: string[]) => execFileSync('git', ['-C', d, ...a], { stdio: 'ignore', env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' } });
+    run('init', '-q');
+    fs.writeFileSync(path.join(d, 'f.txt'), 'x');
+    run('add', 'f.txt');
+    run('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'c');
+    const marker = path.join(d, 'ran');
+    const hook = path.join(d, 'hook.sh');
+    fs.writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    run('config', 'core.fsmonitor', hook);
+
+    // The planted program does run for a plain `git status`, so the check below means something.
+    execFileSync('git', ['-C', d, 'status', '--porcelain'], { stdio: 'ignore' });
+    expect(fs.existsSync(marker)).toBe(true);
+    fs.rmSync(marker);
+
+    const r = await readLocalCommit(d);
+    expect(r).toMatchObject({ source: 'git', dirty: false });
+    expect(fs.existsSync(marker)).toBe(false);
   });
 });
 

@@ -256,7 +256,7 @@ Pages: login, change password, Overview, Host, Services, service detail (live, h
 | Ingest | `127.0.0.1` only, token, 256 KB | Built |
 | Webhook | Raw body, `svix` verification (includes the 5-minute window), duplicate ids, counts only | Built |
 | Actions | `operate` guard, server-side resolution, own process refused by name and PM2 id, modules refused, 409 busy, 429 cooldown, audited | Built |
-| Git | `execFile`, no shell, fixed arguments, 10 s timeout, `GIT_TERMINAL_PROMPT=0`, `-c safe.directory=*`. **[Gap H5]** Add `-c core.fsmonitor=false`, since a repository's own config could otherwise make `git status` start a program as the backend's account | Built |
+| Git | `execFile`, no shell, fixed arguments, 10 s timeout, `GIT_TERMINAL_PROMPT=0`, `-c safe.directory=*`, `-c core.fsmonitor=false` (H5, fixed: a repository's own config could otherwise make `git status` start a program as the backend's account) | Built |
 | Least privilege | Runs as the PM2 owner (Administrator by the deploy defaults) | [Verify, O2] |
 | Branch protection | None; Parts 0 to C were pushed directly to `main` | [Gap H1] |
 | Nginx `limit_req` | `/api/v1/auth/` only | [Gap H8] add `/webhooks/`, `/api/v1/logs/search`, and `/agent/` in M1 |
