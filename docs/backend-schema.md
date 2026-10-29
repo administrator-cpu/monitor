@@ -56,7 +56,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 - One writer; metric rows batched every 10 s.
 - Migrations: files `NNN_name.sql`, forward only, each run in **one transaction** together with its `schema_migrations` row. A failure rolls the file back and stops startup. Because the runner opens the transaction, a migration cannot change `PRAGMA foreign_keys`; none needs to (13.2).
 - Path: `SQLITE_PATH`, default `C:\monitor\data\monitor.db` on Windows, which the deploy script also assumes [Verify the production value].
-- Backups today: `VACUUM INTO` before each deploy into `C:\monitor\backups`, last 10 kept. **[Gap H7]** Same drive as the database; no nightly copy; no offsite copy; no tested restore. Required: nightly `VACUUM INTO E:\monitor-backups\monitor-YYYYMMDD.db` (keep 14), a second copy off the server, pre-deploy backups on `E:`, one restore tested. Metric history may be lost; users, settings, rules, services (including the hand-entered git mapping), hosts and audit must not.
+- Backups (H7): nightly `VACUUM INTO BACKUP_DIR\monitor-YYYYMMDD.db` at 02:30 server time (default `E:\monitor-backups`, newest `backup.keep` = 14 kept, last result in `maintenance_runs` job `backup`); `VACUUM INTO` before each deploy into `E:\monitor-backups\deploy`, last 10 kept; an offsite copy by `scripts/backup-offsite.ps1` (owner's scheduled task). Restore steps and the restore test: `runbook-backups.md`. [Verify] offsite task and V19. Metric history may be lost; users, settings, rules, services (including the hand-entered git mapping), tenants and audit must not.
 
 ---
 
@@ -317,6 +317,7 @@ Defaults live in `apps/backend/src/settings.ts`; only admin edits are stored.
 | `retention.alerts_days` | 90 | 1–730 |
 | `retention.audit_days` | 365 | 1–3650 |
 | `retention.email_days` | 30 | 1–365 |
+| `backup.keep` | 14 | 1–365 nightly backups kept (H7) |
 | `logs.retention_hours` | 24 | 1–168 |
 | `logs.volume_threshold_pct` | 85 | 50–99 |
 | `logs.ring_buffer_lines` | 5000 | 100–100000 |

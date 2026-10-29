@@ -35,7 +35,7 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Alert engine (4.9) | Built | 29 rules |
 | Watchdog (4.10) | Built | One target |
 | Frontend (4.11) | Built | |
-| Deployment (10) | Built | Backups on the same drive [Gap H7] |
+| Deployment (10) | Built | Backups on `E:` (H7); offsite task and restore test [Verify] |
 | Parts 0, A, B, C (13) | Built | Merged in `e31724b` |
 | Multi-host (14) | Planned | Decisions of 2026-10-29 included |
 
@@ -332,6 +332,7 @@ The Host page shows the monitor's CPU, memory, event loop lag, queue depths, dro
 | `COOKIE_SECURE` | follows `NODE_ENV` | |
 | `SQLITE_PATH` | `C:\monitor\data\monitor.db` on Windows | Matches the deploy script default [Verify] |
 | `LOG_ROOT` | `E:\monitor-logs` on Windows | [Verify] |
+| `BACKUP_DIR` | `E:\monitor-backups` on Windows, off elsewhere | Nightly backups (H7); `off` switches the job off |
 | `LOG_LEVEL` | `info` | |
 | `LOG_REQUIRE_SEPARATE_VOLUME` | on in production | |
 | `PM2_ENABLED`, `PM2_HOME` | `true`, PM2 default | |
@@ -388,9 +389,9 @@ Secrets (`CC_ENROLL_TOKEN`, `CC_MONGO_URI`, `CC_RELAY_TOKEN`) live in an env fil
 | Watchdog | Render | `apps/watchdog/render.yaml` |
 | Agent images | GHCR | [Planned] CI job on `main` builds `cc-node-agent` and `cc-docker-proxy`, tagged by commit and `latest` |
 
-`deploy.ps1`: preflight (tools, `.env`, PM2 process runs from the deploy folder) → `VACUUM INTO` backup to `C:\monitor\backups` (last 10 kept) → snapshot to `C:\Apps\command-center-deploy.prev` → robocopy → `pnpm install --frozen-lockfile` → build → `pm2 restart` → `/health` on port 4111 and a 10 s stability check → `.deploy-sha`. On failure: code rollback; database migrations are not undone.
+`deploy.ps1`: preflight (tools, `.env`, PM2 process runs from the deploy folder) → `VACUUM INTO` backup to `E:\monitor-backups\deploy` (last 10 kept) → snapshot to `C:\Apps\command-center-deploy.prev` → robocopy → `pnpm install --frozen-lockfile` → build → `pm2 restart` → `/health` on port 4111 and a 10 s stability check → `.deploy-sha`. On failure: code rollback; database migrations are not undone.
 
-**[Gap H7]** Backups stay on `C:`. Required: nightly `VACUUM INTO` to `E:\monitor-backups`, a second copy off the server, a tested restore, and pre-deploy backups on `E:`.
+**H7 (code done).** The backend's `backup` job (`src/backup.ts`, every 10 min) writes `BACKUP_DIR\monitor-YYYYMMDD.db` once a day after 02:30 server time: `VACUUM INTO` a `.partial` file, `PRAGMA quick_check` on the copy, rename, keep the newest `backup.keep` (14). A failure throws, is retried on the next run and after three makes the job stale (`monitor.collector_stale`, target `backup`); before 02:30 a missing file for yesterday is also a failure. `VACUUM INTO` is synchronous and holds the database for the copy (seconds at the projected size). Offsite: `scripts/backup-offsite.ps1` copies the newest file to an rclone (crypt) remote and prunes remote copies older than 30 days, run by a scheduled task the monitor does not watch. Restore test on a copy: `scripts/check-backup.ps1`. Runbook: `runbook-backups.md`. [Verify] offsite task and V19.
 
 **[Gap H1]** No branch protection: `e31724b` was pushed directly to `main` and deployed without a pull request. Required: protect `main` (pull request, passing CI).
 
@@ -406,7 +407,7 @@ Nginx: `monitor-api.thediv.in` → `127.0.0.1:4111` with WebSocket upgrade heade
 | Watchdog | 42 tests plus smoke run | Built |
 | Agent package | 15 tests plus overhead bench | Built |
 | Browser | Playwright against the demo server | Built |
-| Audit fixes | One test per H item (archive guard with `monitor-api` listed, range caps, Nginx state without top lists, git arguments, mute after restart) | Planned |
+| Audit fixes | One test per H item (archive guard with `monitor-api` listed, range caps, Nginx state without top lists, git arguments, mute after restart, nightly backup) | Built for H2 to H7 |
 | Multi-host | Migration `010` on a copy of the production database; enrollment, revocation, limits, gzip bomb, `Origin` refusal; agent against a fake Docker API and a fixture `/proc`; proxy allowlist (every forbidden path returns 403); command expiry, refusal and replay; two hosts in `pnpm demo`; Playwright with two hosts | Planned |
 | On-host | `implementation-plan.md` 0.3 | Open |
 

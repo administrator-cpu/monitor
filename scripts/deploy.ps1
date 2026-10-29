@@ -24,7 +24,9 @@ param(
   [string]$SourceDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
   [string]$DeployDir = 'C:\Apps\command-center-deploy',
   [string]$PrevDir = 'C:\Apps\command-center-deploy.prev',
-  [string]$BackupDir = 'C:\monitor\backups',
+  # Off the system drive (H7). The nightly backups are in the parent folder; this script only
+  # creates and prunes its own monitor-<date>-<time>-<sha>.db files here.
+  [string]$BackupDir = 'E:\monitor-backups\deploy',
   [string]$DbPath = 'C:\monitor\data\monitor.db',
   [string]$PmName = 'monitor-api',
   [string]$Pm2Home = 'C:\Users\Administrator\.pm2',

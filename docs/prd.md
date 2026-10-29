@@ -235,10 +235,11 @@ Resend webhook counts by sender domain in 10-minute buckets, kept 30 days; Email
 
 SQLite is separate from every production MongoDB.
 
-**Backups (requirement, audit item H7).** Today the only copies are the pre-deploy backups in `C:\monitor\backups`, on the same drive as the database, keeping the last 10. Required:
-- A nightly `VACUUM INTO` copy to a different volume (`E:`) and a second copy off the server.
-- One restore tested and recorded.
-- Pre-deploy backups moved off `C:` as well.
+**Backups (audit item H7, code done).**
+- A nightly `VACUUM INTO` copy at 02:30 to `E:\monitor-backups` (newest 14 kept), checked before it counts; a failure raises "Collector stale" for `backup`.
+- Pre-deploy backups in `E:\monitor-backups\deploy` (last 10).
+- A second copy off the server, encrypted, by `scripts/backup-offsite.ps1` in a scheduled task (owner's step).
+- One restore tested and recorded (V19, owner's step). Steps in `docs/runbook-backups.md`.
 
 ---
 
@@ -304,7 +305,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | PM2 actions: `can_operate`, server-side resolution, confirmation, one at a time, cooldown, `monitor-api` excluded, audited | Built |
 | Read-only `GITHUB_TOKEN`; git run without a shell, fixed arguments, `core.fsmonitor=false` | Built (H5 fixed) |
 | Protected `main` branch (no direct pushes) | Planned (H1) |
-| Off-drive and offsite database backups, tested restore | Planned (H7) |
+| Off-drive and offsite database backups, tested restore | Built (H7): nightly and pre-deploy on `E:`; offsite task and restore test are owner steps |
 | Nginx `limit_req` on `/webhooks/` and `/agent/` | Planned (H8, M1) |
 | Agent ingest with per-host hashed tokens, size and rate limits, version check | Planned (M1) |
 | Docker access only through an allowlisting proxy; no exec, archive, export, inspect or create | Planned (M2) |

@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H6 code done on the same branch, server checks pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H7 code done on the same branch, server checks pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -104,7 +104,7 @@ command-center/
   docs/             runbooks and the four documents (moved here in H1)
 ```
 
-Server folders: repository `C:\Apps\command-center`, deploy `C:\Apps\command-center-deploy`, previous release `C:\Apps\command-center-deploy.prev`, database `C:\monitor\data`, deploy backups `C:\monitor\backups` (moved to `E:` in H7).
+Server folders: repository `C:\Apps\command-center`, deploy `C:\Apps\command-center-deploy`, previous release `C:\Apps\command-center-deploy.prev`, database `C:\monitor\data`, deploy backups `E:\monitor-backups\deploy` and nightly backups `E:\monitor-backups` (H7; `C:\monitor\backups` before).
 
 ### 1.2 Tooling
 
@@ -194,10 +194,13 @@ Done as patch 0006. The in-memory map is gone. Start and Restart delete that ser
 
 #### H7: Backups (1 day)
 
-- [ ] Scheduler job `backup`, daily at 02:30 local: `VACUUM INTO E:\monitor-backups\monitor-YYYYMMDD.db`, keep 14, recorded in `maintenance_runs`; failures show through `monitor.collector_stale`.
-- [ ] `deploy.ps1`: `BackupDir` to `E:\monitor-backups\deploy`.
-- [ ] Owner: a Windows scheduled task copies the newest backup offsite (e.g. `rclone` to an encrypted remote).
-- [ ] Runbook: restore steps (stop, copy, start, check). Do one restore on a copy (V19).
+- [x] Scheduler job `backup`, daily at 02:30 local: `VACUUM INTO E:\monitor-backups\monitor-YYYYMMDD.db`, keep 14, recorded in `maintenance_runs`; failures show through `monitor.collector_stale`.
+- [x] `deploy.ps1`: `BackupDir` to `E:\monitor-backups\deploy`.
+- [ ] Owner: a Windows scheduled task copies the newest backup offsite (e.g. `rclone` to an encrypted remote). Script ready: `scripts/backup-offsite.ps1`.
+- [x] Runbook: restore steps (stop, copy, start, check): `docs/runbook-backups.md`, with `scripts/check-backup.ps1` for the test on a copy.
+- [ ] Do one restore on a copy (V19).
+
+Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and writes the day's file once it is past 02:30 server time; it writes to `.partial`, runs `PRAGMA quick_check` on the copy and renames it, then keeps the newest `backup.keep` (14, new setting) nightly files. Before 02:30 it fails while yesterday's file is missing (unless the folder has no backups yet), so a lost day keeps the alert open. New variable `BACKUP_DIR`: default `E:\monitor-backups` on Windows, off elsewhere, `off` switches it off. Deploy backups go to `E:\monitor-backups\deploy`; the old `C:\monitor\backups` is left for the owner to delete. Owner steps on the server: rclone with a `crypt` remote, the scheduled task, and V19 (runbook sections 2 and 3). Server check: after the first night, today's file exists and there is no "Collector stale" for `backup`.
 
 #### H8: Nginx limits and exposure (0.25 day)
 
@@ -403,7 +406,7 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | 7 | Top paths count everything as `/`; top IPs always empty; page still shows both | `nginx/aggregate.ts`, `nginx/page.tsx` | H4 |
 | 8 | `git status` can start a program configured by the repository (`core.fsmonitor`) | `github/local.ts` | H5 (fixed) |
 | 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 (fixed) |
-| 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 |
+| 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 (code done; offsite task and V19 open) |
 | 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 |
 | 12 | Monitor shares fate with PM2 | Deployment | H9 (O1) |
 | 13 | Production port is 4111, documents said 4000 | `deploy.ps1` `-Port 4111`, former `.env.example` | Documents v3 |
