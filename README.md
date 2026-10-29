@@ -1,36 +1,55 @@
 # Command Center
 
-Self-hosted dashboard for a Windows VPS and the MERN services on it. This repository currently contains **Phases 1 to 9** of the implementation plan, built as a TypeScript pnpm monorepo.
+Self-hosted dashboard for a Windows VPS and the MERN services on it: host metrics, PM2 services and their logs, Nginx, MongoDB, per-tenant application load, alerts by email, GitHub code status, Resend delivery counts, and restart / stop / start of PM2 services. A TypeScript pnpm monorepo.
+
+**Every change goes through a pull request with green CI. A merge to `main` deploys the backend to production** (see [Deployment](#deployment)).
+
+## Documents
+
+The specification lives in `docs/`. These are the current versions (v3, 2026-10-29):
+
+| Document | What it covers |
+|---|---|
+| [`docs/prd.md`](docs/prd.md) | Requirements, roles, scope, owner decisions |
+| [`docs/trd.md`](docs/trd.md) | Technical design, security controls, configuration, failure behaviour |
+| [`docs/backend-schema.md`](docs/backend-schema.md) | Tables, migrations, in-memory shapes, payloads, alert rules, settings |
+| [`docs/implementation-plan.md`](docs/implementation-plan.md) | Phase status, on-server checks (section 0.3), next steps |
+| [`docs/plan-pm2-github-resend.md`](docs/plan-pm2-github-resend.md) | Design and decisions D1 to D10 for Parts 0, A, B, C |
+| `docs/runbook-phase1.md`, `runbook-phase3-5.md`, `runbook-phase6-9.md` | Server setup per phase |
+
+## Status
 
 | Phase | Status | Where |
 |---|---|---|
-| 1. Backend core | built, tested | `apps/backend` |
-| 2. Frontend | built, tested | `apps/frontend` |
-| 3. PM2 and logs | built, tested | `apps/backend/src/pm2`, `src/logs`, migration `002_pm2` |
-| 4. Alert engine and email | built, tested | `apps/backend/src/alerts`, migration `003_alerts` |
-| 5. Render watchdog | built, tested | `apps/watchdog` (standalone, shares no code) |
-| `packages/shared` | built | Zod schemas and types shared by all |
-| 6. Nginx | built, tested | `src/nginx`, migration `004_nginx` |
-| 7. MongoDB | built, tested | `src/mongo`, migration `005_mongo` |
-| 8. Agent and application layer | built, tested | `packages/agent`, `src/agent`, migration `006_agent` |
-| 9. History, search, correlation | built, tested | `src/rollup.ts`, `src/history.ts`, `src/logs/search*.ts`, migration `007_events` |
-| 10. Actions | not started | see `implementation-plan.md` |
+| 1. Backend core | Built | `apps/backend` |
+| 2. Frontend | Built | `apps/frontend` |
+| 3. PM2 and logs | Built | `apps/backend/src/pm2`, `src/logs`, migration `002_pm2` |
+| 4. Alert engine and email | Built | `apps/backend/src/alerts`, migration `003_alerts` |
+| 5. Render watchdog | Built | `apps/watchdog` (standalone, shares no code) |
+| 6. Nginx | Built | `src/nginx`, migration `004_nginx` |
+| 7. MongoDB | Built | `src/mongo`, migration `005_mongo` |
+| 8. Agent and application layer | Built | `packages/agent`, `src/agent`, migration `006_agent` |
+| 9. History, search, correlation | Built | `src/rollup.ts`, `src/history.ts`, `src/logs/search*.ts`, migration `007_events` |
+| 10. Parts 0, A, B, C | Built | Auto-archive and disk filtering; `src/github`, migration `008_github`; `src/email`, `routes/webhooks.ts`, migration `009_email`; `src/pm2/actions.ts` |
+| 10.5. Audit fixes H1 to H9 | In progress | `docs/implementation-plan.md` |
+| 11. Multi-host (Ubuntu VPS through an agent) | Planned | `docs/implementation-plan.md`, `docs/trd.md` section 14 |
 
-Read-only by design: there is no route that starts, stops or restarts anything, and none will exist until phase 10 (TOTP).
+**Actions exist.** Admins, and engineers an admin has marked "Can operate", can restart, stop and start PM2 services from the service page (`POST /api/v1/services/:id/actions`). The target is resolved on the server from the service id, `monitor-api` itself and PM2 modules are refused, one action runs per service at a time with a 10-second cooldown, and every attempt is audited. There is no TOTP; see decision O3 in `docs/prd.md`.
 
 ## What works now
 
 - **Accounts and login.** `create-admin` command (no default credentials), bcrypt cost 12, sessions stored as SHA-256 hashes in SQLite (they survive restarts), absolute (12 h) and idle (2 h) expiry, per-username lockout (5 failures, 15 min) and per-IP throttle (20 / 10 min), unknown usernames behave identically to wrong passwords, audit log of every login, failure, lockout and logout.
-- **Admin.** Create, edit, disable users, reset passwords (forces a change and clears a lockout), revoke sessions, view the audit log, edit numeric settings. Disabling a user closes their live WebSocket immediately.
+- **Admin.** Create, edit, disable users, grant "Can operate", reset passwords (forces a change and clears a lockout), revoke sessions, view the audit log, edit settings. Disabling a user closes their live WebSocket immediately.
 - **Hardening.** Origin allowlist on every API request and on the WebSocket upgrade, custom CSRF header on state-changing requests, exact-origin CORS with credentials, helmet, global and per-route rate limits, strict Zod validation (unknown fields rejected), `__Host-session` Secure/HttpOnly/SameSite=Lax cookie in production, `X-Forwarded-For` honoured only from localhost.
-- **Live host metrics.** CPU (overall and per core), RAM, swap, network, disk usage, uptime, pending-reboot (Windows), collected by an isolated scheduler (own interval, timeout, staleness per collector) into an in-memory state store with a 30-minute ring buffer, and pushed over one shared WebSocket every 2 s.
-- **UI.** Login, forced password change, Overview (host strip, disks, collectors), Host (30-minute CPU, memory and network charts seeded from the backend so a reload is never empty, per-core bars, monitor-health panel), Users, Audit log. Light and dark, phone width and up. A dropped connection is shown as such (values hidden rather than frozen) and recovers by itself.
-- **PM2 and logs (phase 3).** Services are discovered from PM2, with CPU, memory, restarts and uptime; a crash or restart becomes an event. Logs are captured from the PM2 bus into a ring buffer, hourly gzipped files on the log volume (with a guard for a missing or shared volume), and a live tail over WebSocket (250 ms batches, dropped-line counts, audited). Host disk I/O rates on Windows.
-- **Alerts (phase 4).** A 5 s engine with 17 working rules, durations, resolve hysteresis, suppression of symptoms behind a cause, mutes, reminders, per-category subscriptions, and email through Resend with retries and an outbox of every attempt. Admins edit rules and send a test email to themselves.
-- **Nginx, MongoDB, application (phases 6 to 8).** Gateway traffic from a JSON access log and `stub_status`, TLS expiry, read-only MongoDB health and slow-query shapes, and an in-app agent (event-loop lag, latency, sockets, active users, per-tenant load). All 28 alert rules are now working.
-- **History and search (phase 9).** Hourly rollup and retention, history charts with incident markers on every page, log search across days, Windows Event Log.
-- **Watchdog (phase 5).** See `apps/watchdog/README.md`.
-- `GET /health` for the watchdog: shallow, unauthenticated, rate limited, returns only `{"status":"ok"}`.
+- **Live host metrics.** CPU (overall and per core), RAM, swap, network, disk usage and I/O, uptime, pending reboot (Windows), collected by an isolated scheduler into an in-memory state store with a 30-minute ring buffer, and pushed over one shared WebSocket every 2 s. Optical drives and `DISK_EXCLUDE` volumes are skipped.
+- **PM2 and logs.** Services are discovered from PM2, with CPU, memory, restarts and uptime; a crash or restart becomes an event; a service PM2 no longer lists is archived after `pm2.auto_archive_minutes` (15). Logs are captured from the PM2 bus into a ring buffer, hourly gzipped files on the log volume (24 h retention), and a live tail over WebSocket.
+- **Alerts.** A 5 s engine with **29 rules**, durations, resolve hysteresis, suppression of symptoms behind a cause, mutes, reminders, per-category subscriptions, and email through Resend with retries and an outbox of every attempt. A dashboard Stop mutes that service's "service down" alert for 30 minutes.
+- **Nginx, MongoDB, application.** Gateway traffic from a JSON access log (no paths or client addresses) and `stub_status`, TLS expiry, read-only MongoDB health and slow-query shapes, and an in-app agent (event-loop lag, latency, sockets, active users, per-tenant load).
+- **History and search.** Hourly rollup and retention, history charts with incident markers, log search across files, Windows Event Log.
+- **Code status (Part A).** Per service: running commit against its GitHub branch (in sync, behind, ahead, diverged, dirty), latest CI and deploy runs, open pull requests. Read-only token; git is run without a shell with fixed arguments.
+- **Email delivery (Part B).** `POST /webhooks/resend`, verified with `svix`, stores counts only (by sender domain, 10-minute buckets, 30 days). Email page, and a bounce/complaint spike alert.
+- **Watchdog.** A separate Render service checks `/health` and emails at most three times per outage. See `apps/watchdog/README.md`.
+- `GET /health`: shallow, unauthenticated, rate limited, returns only `{"status":"ok"}`.
 
 ## Quick start (development)
 
@@ -43,14 +62,16 @@ pnpm install
 cp apps/backend/.env.example apps/backend/.env       # edit if needed
 pnpm build:shared
 pnpm --filter @cc/backend create-admin               # prompts for a password (hidden)
-pnpm dev:backend                                     # http://localhost:4000
+pnpm dev:backend                                     # http://localhost:4111
 
 # Frontend (second terminal)
 cp apps/frontend/.env.example apps/frontend/.env.local
-pnpm dev:frontend                                    # http://localhost:3000
+pnpm dev:frontend                                    # http://localhost:3111
 ```
 
-Sign in at http://localhost:3000 with the account you just created.
+Sign in at http://localhost:3111 with the account you just created.
+
+The example files match each other: the backend listens on `PORT_API=4111` and allows the origin `http://localhost:3111`; the frontend calls `NEXT_PUBLIC_API_BASE=http://localhost:4111`. If you change one port, change the other file too. Without a PM2 daemon, set `PM2_ENABLED=false` in `apps/backend/.env`.
 
 Scripted admin creation: `CC_ADMIN_PASSWORD='...' pnpm --filter @cc/backend create-admin -- --username owner --email me@example.com --name "Owner"`.
 
@@ -65,12 +86,12 @@ Scripted admin creation: `CC_ADMIN_PASSWORD='...' pnpm --filter @cc/backend crea
 | `pnpm smoke:watchdog` | Real watchdog process against a fake target and mock Resend |
 | `pnpm pm2:check` | Backend PM2 integration against a real, throw-away PM2 daemon |
 | `pnpm build` | Builds all packages |
-| `pnpm --filter @cc/frontend e2e` | Playwright smoke tests (see below) |
+| `pnpm --filter @cc/frontend e2e` | Playwright browser tests (see below) |
 | `pnpm format` | Prettier |
 
 ### Browser tests
 
-Build the UI against the test API first, then run Playwright. It starts a throwaway backend (temporary database, one admin, real collectors) and `next start` by itself.
+Build the UI against the test API first, then run Playwright. It starts a throwaway backend (temporary database, one admin, pretend Nginx, MongoDB and agent) and `next start` by itself.
 
 ```bash
 cd apps/frontend
@@ -81,62 +102,68 @@ pnpm e2e
 
 ## Configuration
 
-Backend (`apps/backend/.env.example`): `ALLOWED_ORIGINS` (required, exact origins), `PORT_API`, `BIND_HOST`, `SQLITE_PATH`, `LOG_ROOT`, `COOKIE_SECURE`, `LOG_LEVEL`, `CC_ENV_FILE` (point the service at an env file outside the repository). Invalid configuration stops startup and names the variable, never its value. Defaults on Windows are `C:\monitor\data\monitor.db` and `E:\monitor-logs`.
+Every backend variable is listed, with comments, in [`apps/backend/.env.example`](apps/backend/.env.example) and described in `docs/trd.md` section 9.1. In short:
 
-Phases 3 and 4 add: `PM2_HOME` (optional), `LOG_REQUIRE_SEPARATE_VOLUME` (default true: refuse to log onto the system volume), `RESEND_API_KEY`, `RESEND_API_URL` (testing), `ALERT_FROM`, `PUBLIC_DASHBOARD_URL`. Without a Resend key the engine still runs and the dashboard shows alerts, but nothing is emailed and the outbox stays empty. Watchdog variables are in `apps/watchdog/README.md`.
+- **Core:** `ALLOWED_ORIGINS` (required, exact origins), `NODE_ENV`, `BIND_HOST`, `PORT_API` (code default 4000, **4111 in production**), `COOKIE_SECURE`, `COOKIE_SECRET` (optional, unused), `SQLITE_PATH`, `LOG_ROOT`, `LOG_LEVEL`, `CC_ENV_FILE` (point the service and CLI tools at an env file outside the repository).
+- **PM2 and logs:** `PM2_ENABLED`, `PM2_HOME`, `LOG_REQUIRE_SEPARATE_VOLUME` (on in production: refuse to log onto the system volume).
+- **Alert email:** `RESEND_API_KEY`, `RESEND_API_URL` (testing), `ALERT_FROM`, `PUBLIC_DASHBOARD_URL`. Without a Resend key alerts still show on the dashboard but nothing is emailed.
+- **Nginx, MongoDB, agent (optional):** `NGINX_STATUS_URL`, `NGINX_ACCESS_LOG`, `NGINX_ERROR_LOG`, `TLS_CHECK_HOSTS`, `MONGO_URI`, `MONGO_PROFILE_DBS`, `INGEST_TOKEN` (24+ characters), `PORT_INGEST` (default 4001, loopback only).
+- **Parts 0, A, B (optional):** `DISK_EXCLUDE`, `GITHUB_TOKEN`, `RESEND_WEBHOOK_SECRET`.
 
-Phases 6 to 8 add (all optional): `NGINX_STATUS_URL`, `NGINX_ACCESS_LOG`, `NGINX_ERROR_LOG`, `TLS_CHECK_HOSTS`, `MONGO_URI`, `MONGO_PROFILE_DBS`, `INGEST_TOKEN` (24+ characters) and `PORT_INGEST` (default 4001, loopback only). See `docs/runbook-phase6-9.md`.
+Invalid configuration stops startup and names the variable, never its value. Secrets are shown in the startup log only as set or not set.
 
-Frontend: `NEXT_PUBLIC_API_BASE` only. It is not a secret.
+Frontend: `NEXT_PUBLIC_API_BASE` only ([`apps/frontend/.env.example`](apps/frontend/.env.example)). It is not a secret.
 
-Tunables (session lifetimes, lockout, retention numbers) are in the `settings` table, editable by admins through `PATCH /api/v1/settings`; defaults live in `apps/backend/src/settings.ts`.
+Tunables (retention, session lifetimes, lockout, poll intervals, stop-mute length) are in the `settings` table, editable by admins on the Settings page; defaults live in `apps/backend/src/settings.ts`.
 
-`NODE_ENV=production` turns on the Secure `__Host-session` cookie and refuses to start with `COOKIE_SECURE=false`, so use it once HTTPS is in place. Until then (localhost only, per the plan) use `NODE_ENV=development`.
+`NODE_ENV=production` turns on the Secure `__Host-session` cookie and refuses to start with `COOKIE_SECURE=false`, so use it only behind HTTPS.
 
-## Deploying to the VPS
+## Deployment
 
-See `docs/runbook-phase6-9.md` for Nginx, MongoDB, the agent and log search, `docs/runbook-phase3-5.md` for PM2, log volume, Resend and the watchdog, and `docs/runbook-phase1.md`: build, env file, `create-admin`, Windows service with NSSM (`scripts/install-service.ps1`), Nginx block, the on-host verification checklist and the demo script.
+| Part | Where | How |
+|---|---|---|
+| Backend | Windows VPS, PM2 process `monitor-api` on `127.0.0.1:4111`, behind Nginx at `monitor-api.thediv.in` | `.github/workflows/deploy-backend.yml`: a push to `main` touching backend paths runs the tests, then `scripts/deploy.ps1` on the self-hosted runner |
+| Frontend | Vercel, `monitor.thediv.in` | Vercel's Git integration |
+| Watchdog | Render | `apps/watchdog/render.yaml` |
+
+`scripts/deploy.ps1` backs up the database (`VACUUM INTO`), keeps the previous release, copies and builds, restarts `monitor-api` in PM2, checks `/health` on port 4111 and stability for 10 s, records `.deploy-sha`, and rolls the code back on failure. Database migrations are not rolled back.
+
+Production paths: deploy folder `C:\Apps\command-center-deploy`, env file `C:\Apps\command-center-deploy\apps\backend\.env` (never overwritten by a deploy), database `C:\monitor\data\monitor.db`, logs `E:\monitor-logs`.
+
+Server setup per phase (Nginx block, PM2, log volume, Resend, MongoDB user, agent) is in the runbooks in `docs/`. `scripts/install-service.ps1` installs the backend as a Windows service with NSSM; production does not use it yet (decision O1, step H9 in the plan).
+
+### Working on this repository
+
+- Branch from `main`, open a pull request, wait for the CI check (`test`) to pass. `main` is protected.
+- New migrations start at `010`; test each one on a copy of the production database before merging.
+- After a merge or an on-server check, update the status labels in the four documents in `docs/` and the checks in `docs/implementation-plan.md` section 0.3.
 
 ## Verification status
 
-Run in a Linux container, all passing:
+On `main` (`c00d968`), all passing: **364 backend tests** (22 files), **42 watchdog tests**, **15 agent tests**, typecheck of all packages clean. The Playwright suite (22 browser tests) and the integration helpers (`pm2:check`, `mongo:check`, `size:check`, `smoke:watchdog`) exist but were not rerun for this count.
 
-- **173 backend tests** (the list below describes phase 1; phases 3 and 4 add PM2, log pipeline, alert engine, mail, API and WebSocket log tests), **42 watchdog tests**, a watchdog smoke run, and a 20-check PM2 integration against a real daemon. **16 browser tests** pass in total. Phase 1 detail: 72 tests: lockout and per-IP throttle, parallel-guess race, unknown-user parity, Origin/CSRF/CORS rejection, cookie flags, absolute and idle session expiry, session survival across a backend restart (new app on the same database file), role checks, last-admin and self-lockout guards, password policy, settings validation, migrations (idempotent, rollback on failure), scheduler (isolation, timeout, no overlap, staleness), WebSocket close codes 4401 / 4403 / 4429, 60 s session re-check, host collectors.
-- **9 browser tests (Chromium)**: login and logout, wrong password, live updates and charts that keep growing, charts populated after reload, admin creating an engineer who is forced to change password and sees no admin pages, an admin disabling a user ends that user's live session, WebSocket drop and automatic recovery, API unreachable then retry, 375 px viewport with no horizontal scroll.
-- A real backend process run with real `systeminformation` collectors, the `create-admin` CLI, login over HTTP, and a live WebSocket feed.
-
-**Not verified here, needs the actual VPS** (these are the plan's **[Verify]** items):
-
-- `better-sqlite3` and `bcrypt` loading on Windows. Both ship a `win32-x64` prebuild, so no compiler should be needed, but it has not been run on Windows. `bcryptjs` is the automatic fallback.
-- `systeminformation` on that Windows version (CPU, memory, network, `fsSize` for `C:` and `E:`) and the PowerShell pending-reboot check. Per-disk I/O is not collected yet (phase 3), so disks report `null` read/write rates.
-- NSSM service install and restart behaviour, running under the low-privilege account.
-- The one-hour idle run against the TRD budget (under 500 MB, under 10 % of one core, event loop lag p95 under 50 ms). A short run here showed about 110 MB RSS and p95 lag around 20 ms on a 2-core container, which is encouraging but not that test.
-- HTTPS, WSS through Nginx, Vercel deployment and cross-subdomain cookie behaviour.
+What still has to be confirmed on the real server (idle resource budget, sessions across a restart, PM2 Start on a stopped process, the Resend webhook through Nginx, the port scan, the production paths, and others) is tracked in one place: `docs/implementation-plan.md` section 0.3, checks V1 to V24.
 
 ## Deviations from the documents
 
-Recorded as the plan asks.
+Recorded during phases 1 to 9 and kept here for reference. Later differences between the code and the documents are recorded in the documents themselves (`docs/trd.md` and `docs/implementation-plan.md` appendix A).
 
-- **Migration `001` only.** Phase 1 adds just the tables the plan assigns to it. Host metrics are not persisted yet: that arrives with `002_pm2` and the batched writer in phase 3.
-- **Setting defaults live in code** rather than being seeded by a migration (the seed is specified for `003_alerts`). Only numeric keys are editable now; string and list keys (`alert.from`, `tls.hosts`, ...) arrive with the phases that use them.
-- **`COOKIE_SECRET` is optional and unused.** It is validated if present and reserved for signed cookies or CSRF tokens in a later phase. Sessions use random 256-bit tokens and CSRF uses the header plus Origin check specified in the TRD.
-- **WebSocket log channel** is accepted by the schema and answers `logs_unavailable` until phase 3.
+### Phase 1
+
+- **Setting defaults live in code** rather than being seeded by a migration.
+- **`COOKIE_SECRET` is optional and unused.** It is validated if present and reserved for signed cookies or CSRF tokens. Sessions use random 256-bit tokens and CSRF uses the header plus Origin check specified in the TRD.
 - **WebSocket Origin is mandatory.** A socket upgrade without an `Origin` header is closed with 4403 (browsers always send one).
 - **Dependency choices.** Zod 3 (not 4), `better-sqlite3` 13, Next.js 16 / React 19, pnpm 10. ESLint is not configured yet (Prettier and strict TypeScript are).
 - **`HostState.updatedAt`** is the time of the live CPU/memory sample; staleness of disks and uptime is reported per collector.
-- **`DiskState.readBps` / `writeBps`** are `number | null` (null = not measured until phase 3).
-- **Extra endpoints beyond the TRD table:** none are write routes for the host. `GET/PATCH /settings` and `GET /audit` follow the table.
 
 ### Phases 3 to 5
 
 - **PM2 runs in a worker thread** with a socket probe first, so the monitor never starts a PM2 daemon and a hung PM2 cannot block the event loop. Only whitelisted fields cross the thread boundary.
 - **The PM2 bus has no replay**, so when a service is first seen the monitor reads the last ~150 lines of its PM2 out/err files into the live view (memory only, not re-stored; stdout and stderr interleaving is approximate). Lines logged while the monitor was down are not in the monitor's own log files.
-- **Services are discovered from PM2 names**; one that disappears shows as stopped. Archiving a service PM2 still lists is refused (409).
+- **Services are discovered from PM2 names**; one that disappears shows as stopped until it is auto-archived. Archiving a service PM2 still lists is refused (409).
 - **gzip uses streaming zlib** instead of a worker; the hour file is chosen by receive time; `LogStatus` gained `skippedLines` and `volumeReason`.
 - **Extra suppression pairs** beyond the document: crash loop hides service down, critical disk hides warning disk for the same volume.
-- **Interim hourly retention** runs until phase 9 replaces it.
 - **Disk I/O is Windows-only** (PowerShell CIM); other platforms report null.
-- **Setting defaults live in code**; rules whose data arrives later (Nginx, Mongo, app) are listed as `implemented: false`.
 - **Resend `Idempotency-Key`** is sent so retries never duplicate an email. `monitor.email_failing` is dashboard-only.
 - **Watchdog:** cannot notify if Resend is also down; a second failure within 30 minutes of recovery is the same outage and sends no new email (at most 3 per outage).
 
@@ -151,16 +178,16 @@ Recorded as the plan asks.
 - **No dual-axis correlation chart:** CPU, users and sockets are stacked on one shared x axis.
 - **Windows events:** critical, error and warning are collected, only critical alerts.
 - **Log search:** newest first by default, context lines capped at 2000, `matched` counts returned matches.
-- **E2E** now runs against `apps/backend/scripts/demo-server.ts`, a pretend Nginx, MongoDB and agent around the real backend.
+- **E2E** runs against `apps/backend/scripts/demo-server.ts`, a pretend Nginx, MongoDB and agent around the real backend.
 
 ## Layout
 
 ```
-apps/backend     Fastify API, WebSocket, collectors, SQLite, tests
-apps/watchdog    Independent Render service (no shared code)
+apps/backend     Fastify API, WebSocket, collectors, alerts, actions, webhook, SQLite, tests
 apps/frontend    Next.js UI (static shell, data fetched directly from the API)
+apps/watchdog    Independent Render service (no shared code)
 packages/agent   In-app agent (zero runtime dependencies)
 packages/shared  Zod schemas and TypeScript types
-scripts          Windows service install / uninstall (NSSM)
-docs             Runbook (put prd.md, trd.md, backend-schema.md, implementation-plan.md here)
+scripts          deploy.ps1 (production deploy), install-service.ps1 / uninstall-service.ps1 (NSSM)
+docs             PRD, TRD, schema, implementation plan, Parts 0 to C plan, runbooks
 ```
