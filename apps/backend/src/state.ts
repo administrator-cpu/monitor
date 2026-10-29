@@ -157,8 +157,6 @@ export class StateStore {
   private nginxWindows = new RingBuffer<NginxWindow>(180);
   private nginxLog: {
     at: number;
-    topPaths: { path: string; count: number }[];
-    topClientIps: { ip: string; count: number }[];
     malformedLines: number;
     linesTotal: number;
     lastLineAt: number | null;
@@ -416,8 +414,6 @@ export class StateStore {
             p95Ms: x.p95Ms,
           }))
         : [],
-      topPaths: lg?.topPaths ?? [],
-      topClientIps: lg?.topClientIps ?? [],
       malformedLines: lg?.malformedLines ?? 0,
       linesTotal: lg?.linesTotal ?? 0,
       lastLineAt: lg?.lastLineAt ?? null,

@@ -110,7 +110,7 @@ No table has a foreign key to `services`. [Planned] Rebuilt in `010` (13.2).
 
 `metrics_nginx` (Windows `stub_status`, stays host 1 only), `metrics_nginx_service` (per service; also used for Caddy traffic on other hosts, since `service_id` identifies the host), `tls_certs(host PRIMARY KEY, not_after, issuer, checked_at, last_error)`.
 
-**[Gap H4]** `NginxState.topPaths` and `topClientIps` exist in memory and on the Nginx page but cannot be filled with the privacy log format (everything counts as `/`). They are removed.
+`NginxState` has no top paths or client addresses: the privacy log format carries neither (H4, fixed; the lists counted everything under `/` before).
 
 ### 3.7 MongoDB [Built]
 
@@ -183,7 +183,7 @@ Search accepts a range of at most `logs.retention_hours` (H3, fixed; it accepted
 
 ## 5. In-Memory Shapes [Built]
 
-Defined in `packages/shared/src/index.ts`. Relevant today: `HostState`, `DiskState` (`readBps`, `writeBps` nullable), `ProcessState` (`serviceId`, `name`, `pm2Name`, status `online | launching | stopping | stopped | errored`, instances, CPU, memory, restarts, uptime, `lastExit`), `NginxState` (includes `topPaths`, `topClientIps` [Gap H4]), `MongoState`, `AppState`, `CollectorStatus`, `LogStatus`, `ServiceDto` (includes `gitRepo`, `gitBranch`, `gitPath`, `stale`), `UserDto` (includes `canOperate`), git status DTO, `ServiceActionResponse` (`ok`, `action`, `status`, `verified`, `mutedMinutes`).
+Defined in `packages/shared/src/index.ts`. Relevant today: `HostState`, `DiskState` (`readBps`, `writeBps` nullable), `ProcessState` (`serviceId`, `name`, `pm2Name`, status `online | launching | stopping | stopped | errored`, instances, CPU, memory, restarts, uptime, `lastExit`), `NginxState` (no top lists since H4), `MongoState`, `AppState`, `CollectorStatus`, `LogStatus`, `ServiceDto` (includes `gitRepo`, `gitBranch`, `gitPath`, `stale`), `UserDto` (includes `canOperate`), git status DTO, `ServiceActionResponse` (`ok`, `action`, `status`, `verified`, `mutedMinutes`).
 
 [Planned] additions:
 
@@ -332,7 +332,7 @@ Defaults live in `apps/backend/src/settings.ts`; only admin edits are stored.
 | `github.poll_minutes` | 5 | 1–1440 |
 | `actions.stop_mute_minutes` | 30 | 0 turns it off |
 | `agent.max_tenants_per_report` | 50 | |
-| `nginx.top_n` | 50 | Removed with H4 |
+| `nginx.top_n` | — | Removed with H4; a stored row is ignored |
 | `mongo.slow_ms` | 100 | |
 
 [Planned]

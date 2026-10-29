@@ -90,7 +90,6 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
       state: ctx.state,
       services: ctx.services,
       pipeline: ctx.logs.pipeline,
-      topN: () => ctx.settings.get('nginx.top_n'),
       warn: (o, m) => log.warn(o, m),
     });
     ctx.scheduler.register(nginxLog);

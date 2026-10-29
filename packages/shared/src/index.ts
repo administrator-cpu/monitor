@@ -678,8 +678,6 @@ export interface NginxState {
   waiting: number;
   reqPerS: number;
   perService: NginxServiceState[];
-  topPaths: { path: string; count: number }[];
-  topClientIps: { ip: string; count: number }[];
   /** Access-log lines that could not be parsed (skipped, never fatal). */
   malformedLines: number;
   linesTotal: number;

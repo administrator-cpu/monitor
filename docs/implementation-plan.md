@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 and H3 code done on the same branch, server checks pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2, H3 and H4 code done on the same branch, server checks pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -174,8 +174,10 @@ Done as patch 0003: both limits are read from the settings on each request (`src
 
 #### H4: Nginx top lists removed (0.25 day)
 
-- [ ] Remove `topPaths` and `topClientIps` from `NginxState`, the aggregator and the Nginx page; remove the `nginx.top_n` setting.
-- [ ] The page states that paths and client addresses are not logged.
+- [x] Remove `topPaths` and `topClientIps` from `NginxState`, the aggregator and the Nginx page; remove the `nginx.top_n` setting.
+- [x] The page states that paths and client addresses are not logged.
+
+Done as patch 0004. A `nginx.top_n` row already stored in the production database is ignored on load and no longer listed; setting it is refused as an unknown key, so no migration is needed. The parser still reads optional `uri` and `ip` (unused). Server check: the Nginx page shows no top lists and shows the note under "Traffic by service".
 
 #### H5: Git arguments (0.1 day)
 

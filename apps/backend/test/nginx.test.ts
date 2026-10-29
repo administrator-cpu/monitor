@@ -201,7 +201,7 @@ describe('NginxAggregator', () => {
   const T0 = Math.floor(1_800_000_000_000 / WINDOW_MS) * WINDOW_MS;
 
   it('counts requests, status classes, bytes and percentiles per service and window', () => {
-    const a = new NginxAggregator(() => 50);
+    const a = new NginxAggregator();
     for (let i = 1; i <= 100; i++) a.add(rec(i <= 90 ? 200 : 503, i / 1000), 1, T0 + 100);
     a.add(rec(404, 0.01), 2, T0 + 200);
     a.add(rec(302, null), 0, T0 + 300);
@@ -219,7 +219,7 @@ describe('NginxAggregator', () => {
   });
 
   it('matches a manual count over a one-minute test', () => {
-    const a = new NginxAggregator(() => 50);
+    const a = new NginxAggregator();
     let manual = 0;
     for (let s = 0; s < 60; s++) {
       for (let k = 0; k < (s % 7) + 1; k++) {
@@ -231,20 +231,8 @@ describe('NginxAggregator', () => {
     expect(total).toBe(manual);
   });
 
-  it('bounds the top lists and resets them every hour', () => {
-    const a = new NginxAggregator(() => 5);
-    for (let i = 0; i < 5_000; i++) a.add(rec(200, 0.01, { uri: `/p${i}`, ip: `10.0.${Math.floor(i / 250)}.${i % 250}` }), 1, T0);
-    for (let i = 0; i < 50; i++) a.add(rec(200, 0.01, { uri: '/hot' }), 1, T0);
-    expect(a.topPaths()).toHaveLength(5);
-    expect(a.topPaths()[0]).toEqual({ path: '/hot', count: 51 > 50 ? a.topPaths()[0]!.count : 0 });
-    expect(a.topPaths()[0]!.path).toBe('/hot');
-    expect(a.topClientIps().length).toBeLessThanOrEqual(5);
-    a.add(rec(200, 0.01, { uri: '/later' }), 1, T0 + 3_600_000 + 1);
-    expect(a.topPaths()).toEqual([{ path: '/later', count: 1 }]);
-  });
-
   it('counts malformed lines and remembers the last line time', () => {
-    const a = new NginxAggregator(() => 5);
+    const a = new NginxAggregator();
     a.malformed(3);
     a.add(rec(200, 0.01), 1, T0 + 77);
     expect(a.malformedLines).toBe(3);
@@ -253,7 +241,7 @@ describe('NginxAggregator', () => {
   });
 
   it('caps response-time samples and still gives a sane percentile', () => {
-    const a = new NginxAggregator(() => 5);
+    const a = new NginxAggregator();
     for (let i = 0; i < 20_000; i++) a.add(rec(200, (i % 100) / 1000), 1, T0);
     const [w] = a.advance(T0 + WINDOW_MS);
     expect(w!.services[0]!.requests).toBe(20_000);
@@ -374,7 +362,7 @@ describe('collectors end to end (real files, real aggregation, real database)', 
 
     const access = file();
     fs.writeFileSync(access, '');
-    const col = nginxLogCollector({ accessLog: access, state, services, pipeline, topN: () => 50, now, startAtEnd: true });
+    const col = nginxLogCollector({ accessLog: access, state, services, pipeline, now, startAtEnd: true });
     await col.run();
 
     const rows: string[] = [];
@@ -394,7 +382,9 @@ describe('collectors end to end (real files, real aggregation, real database)', 
     expect(by(api.id)).toMatchObject({ s5xx: 3, s2xx: 27, reqPerS: 3 });
     expect(by(web.id).reqPerS).toBe(1);
     expect(by(0).reqPerS).toBeCloseTo(0.4);
-    expect(n.topPaths[0]).toEqual({ path: '/v1/orders', count: 44 });
+    // H4: the privacy log format carries no path or address, so neither list is kept or sent
+    expect(n).not.toHaveProperty('topPaths');
+    expect(n).not.toHaveProperty('topClientIps');
     expect(pipeline.tail('_nginx', 100).length).toBe(45); // raw lines, including the malformed one
     expect(queued.length).toBe(45);
 
@@ -420,7 +410,7 @@ describe('collectors end to end (real files, real aggregation, real database)', 
     const services = new ServicesRepo(db);
     const pipeline = new LogPipeline({ writer: { enqueue: () => undefined } as never, ringLines: () => 100 });
     const f = file();
-    const col = nginxLogCollector({ accessLog: f, state: new StateStore(), services, pipeline, topN: () => 5 });
+    const col = nginxLogCollector({ accessLog: f, state: new StateStore(), services, pipeline });
     await expect(col.run()).rejects.toThrow('access log not found');
     fs.writeFileSync(f, '');
     await col.run();
@@ -486,7 +476,7 @@ describe('nginx alert rules', () => {
     state.addNginxWindows([
       { ts: clock.t - WINDOW_MS, requests, services: [{ serviceId, requests, s2xx: requests - s5xx, s3xx: 0, s4xx: 0, s5xx, p50Ms: 5, p95Ms: 9, bytesOut: 0 }] },
     ]);
-    state.setNginxLog({ at: clock.t, topPaths: [], topClientIps: [], malformedLines: 0, linesTotal: 1, lastLineAt: clock.t });
+    state.setNginxLog({ at: clock.t, malformedLines: 0, linesTotal: 1, lastLineAt: clock.t });
   };
 
   it('5xx rate opens after its duration, needs 50 requests, and resolves when traffic is healthy', async () => {
@@ -609,5 +599,16 @@ describe('nginx API', () => {
     } finally {
       await t.close();
     }
+  });
+});
+
+describe('H4: top paths and client addresses removed', () => {
+  it('ignores a stored nginx.top_n row, no longer lists it, and refuses to set it', () => {
+    const db = openDb(':memory:');
+    migrate(db);
+    db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('nginx.top_n', '50', 1);
+    const s = new Settings(db);
+    expect(s.all().map((e) => e.key)).not.toContain('nginx.top_n');
+    expect(() => s.setMany({ 'nginx.top_n': 10 }, null)).toThrow('Unknown setting: nginx.top_n');
   });
 });

@@ -27,7 +27,7 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Collectors (4.1) | Built | Auto-archive guard counts the monitor itself [Gap H2] |
 | State store (4.2) | Built | Single host today |
 | Log pipeline (4.3) | Built | Search range capped at `logs.retention_hours` (H3, fixed) |
-| Nginx (4.4) | Built | Top paths and IPs cannot be filled [Gap H4] |
+| Nginx (4.4) | Built | Top paths and IPs removed (H4, fixed) |
 | MongoDB (4.5) | Built | |
 | Application agent (4.6) | Built | |
 | API (4.7) | Built | |
@@ -190,7 +190,7 @@ log_format monitor_json escape=json
   '"urt":"$upstream_response_time","up":"$upstream_addr","bytes":$body_bytes_sent,"method":"$request_method"}';
 ```
 
-The parser still reads optional `uri` and `ip`. **[Gap H4]** With the format above every request is counted under `/` in "top paths" and "top client IPs" stays empty, and the Nginx page shows both. Fix: remove both lists from `NginxState` and the page (privacy format kept). The tailer starts at the end of the file and follows rotation [Verify]. Attribution uses `services.nginx_match`.
+The parser still reads optional `uri` and `ip`; nothing uses them. **H4 (fixed):** with the format above every request was counted under `/` in "top paths" and "top client IPs" stayed empty. Both lists and the `nginx.top_n` setting are removed from `NginxState`, the aggregator and the page, which now states that paths and addresses are not logged (privacy format kept). The tailer starts at the end of the file and follows rotation [Verify]. Attribution uses `services.nginx_match`.
 
 ### 4.5 MongoDB
 
@@ -414,7 +414,7 @@ Nginx: `monitor-api.thediv.in` → `127.0.0.1:4111` with WebSocket upgrade heade
 
 ## 12. Items to Verify
 
-The canonical list with owners and status is `implementation-plan.md` section 0.3. Resolved by the v3 review: git "unsafe" folders (handled by `safe.directory=*`), the email rule key (`monitor.email_bounce_spike`), how a stop mute ends (the row is deleted), whether settings are seeded (no, defaults in code), whether `pm2.stale_hours` is still read (yes), whether `NginxState` still has the top lists (yes, H4).
+The canonical list with owners and status is `implementation-plan.md` section 0.3. Resolved by the v3 review: git "unsafe" folders (handled by `safe.directory=*`), the email rule key (`monitor.email_bounce_spike`), how a stop mute ends (the row is deleted), whether settings are seeded (no, defaults in code), whether `pm2.stale_hours` is still read (yes), whether `NginxState` still has the top lists (it did; removed by H4).
 
 ---
 

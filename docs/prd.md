@@ -171,7 +171,7 @@ Each layer applies per host. The table in 16.4 shows the source on each host.
 - Windows Event Log (Windows host only): critical, error and warning collected; critical alerts.
 - Gateway (Nginx on Windows, Caddy on Ubuntu): per-service request rate, status classes, p50 and p95 latency, bytes, TLS expiry. Nginx also: `stub_status` connections and requests per second.
 - **Privacy rule for gateway logs (decided in v3):** request paths, query strings, client addresses and headers are never stored or shipped, on any host. Nginx already logs without them; the Ubuntu agent drops them from Caddy records before anything leaves the host.
-- **"Top paths" and "top client IPs" are removed** from the Nginx page (decided in v3). The current page shows them, but with the privacy log format all requests land under `/` and the IP list stays empty (audit item H4).
+- **"Top paths" and "top client IPs" are removed** from the Nginx page (decided in v3). With the privacy log format all requests landed under `/` and the IP list stayed empty; the page now says paths and addresses are not logged (audit item H4, fixed).
 
 ### 4.2 Layer 2: Services
 

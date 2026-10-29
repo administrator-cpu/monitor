@@ -74,7 +74,6 @@ export const SETTING_DEFS = {
   /** Stop from the dashboard silences that service's "service down" alert for this long. 0 turns it off. */
   'actions.stop_mute_minutes': { type: 'number', default: 30, int: true, min: 0, max: 1440 },
   'agent.max_tenants_per_report': { type: 'number', default: 50, int: true, min: 1, max: 500 },
-  'nginx.top_n': { type: 'number', default: 50, int: true, min: 5, max: 500 },
   'mongo.slow_ms': { type: 'number', default: 100, int: true, min: 1, max: 60000 },
 } satisfies Record<string, NumberDef | StringDef>;
 
