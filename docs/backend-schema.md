@@ -126,7 +126,7 @@ No table has a foreign key to `services`. [Planned] Rebuilt in `010` (13.2).
 - `alert_incidents(rule_id, service_id, fingerprint, state, opened_at, resolved_at, last_notified_at, notify_count, peak_value, summary, suppressed_by)`; unique index on `fingerprint` while `state = 'firing'`.
 - `alert_notifications` (outbox; `provider_msg_id` kept, not matched to webhooks, D6).
 - `alert_subscriptions(user_id, category)`.
-- `alert_mutes(starts_at, ends_at, service_id, category, rule_id, reason, created_by)`. A Stop action inserts a mute on `pm2.service_down` for that service; Start deletes it. **[Gap H6]** The link from service to mute id is held in memory, so after a monitor restart Start cannot find it. Fix: on Start, delete mutes for that service and rule whose `reason` starts with "Stopped from the dashboard".
+- `alert_mutes(starts_at, ends_at, service_id, category, rule_id, reason, created_by)`. A Stop action inserts a mute on `pm2.service_down` for that service; Start (and Restart) deletes it. The mute is found in the database: that service, that rule, `category` null, not yet ended, and `reason` starting with "Stopped from the dashboard by ", so it works after a monitor restart and leaves mutes an admin made by hand (H6, fixed).
 
 The category CHECK is why every new rule reuses an existing category (D5).
 

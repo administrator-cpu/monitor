@@ -216,6 +216,20 @@ export class AlertRepo {
     return this.db.prepare('DELETE FROM alert_mutes WHERE id = ?').run(id).changes > 0;
   }
 
+  /**
+   * Deletes the mutes on one rule for one service whose reason starts with `reasonPrefix` and that
+   * have not ended yet. Ended ones stay as history. Returns how many were deleted.
+   */
+  deleteServiceMutes(serviceId: number, ruleId: number, reasonPrefix: string, at: number): number {
+    return this.db
+      .prepare(
+        `DELETE FROM alert_mutes
+          WHERE service_id = ? AND rule_id = ? AND category IS NULL AND ends_at > ?
+            AND substr(reason, 1, length(?)) = ?`,
+      )
+      .run(serviceId, ruleId, at, reasonPrefix, reasonPrefix).changes;
+  }
+
   // --- subscriptions and recipients -----------------------------------------
 
   getSubscriptions(userId: number): AlertCategory[] {

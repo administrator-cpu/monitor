@@ -302,7 +302,7 @@ Pages: login, change password, Overview, Host, Services, service detail (live, h
 | Action while another runs | 409 | Built |
 | Action within 10 s of the last | 429 | Built |
 | Action not confirmed by PM2 within 10 s | 200 with `verified: false`, audited | Built |
-| Monitor restarted after a Stop | Start cannot lift the mute; it expires by itself [Gap H6] | Built |
+| Monitor restarted after a Stop | Start finds the stop mute in the database by service, rule and reason, and lifts it (H6, fixed) | Built |
 | PM2 lists nothing | Auto-archive skipped | Built |
 | Agent stops reporting | `host.silent` after 120 s; that host's data stale; its other alerts suppressed except probes | Planned |
 | Monitor unreachable from an agent | Agent buffers up to 50 MB on disk, then drops oldest and counts | Planned |

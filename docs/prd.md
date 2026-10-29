@@ -412,7 +412,7 @@ Approved 2026-10-09 (D1 to D10 as recommended), merged in `e31724b`. Two migrati
 - Start, stop, restart for admins and operators. `POST /api/v1/services/:id/actions`, 20 per minute.
 - Refused unless PM2 is on, the process is listed, is not a module and is not the monitor (by name `monitor-api` and by the process's own PM2 id).
 - One action per service at a time (409); 10-second cooldown (429); PM2 unreachable or refusing (502).
-- Start restarts only the stopped instances. Stop mutes `pm2.service_down` for that service for 30 minutes; Start lifts the mute. The link between a stop and its mute is kept in memory only, so after a monitor restart Start cannot lift it and it runs out by itself (audit item H6).
+- Start restarts only the stopped instances. Stop mutes `pm2.service_down` for that service for 30 minutes; Start lifts the mute, also after the monitor has restarted, since the mute is found in the database; a mute an admin made by hand is left alone (audit item H6, fixed).
 - Audit `service_action` and `service_action_failed`.
 
 ### 15.4 Configuration

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { ServiceActions, STOP_MUTE_REASON } from '../src/pm2/actions';
 import type { Pm2Handlers, Pm2Proc, Pm2Source } from '../src/pm2/types';
 import { addUser, authed, login, makeApp, type TestApp } from './helpers';
 
@@ -141,6 +142,35 @@ describe('service actions', () => {
     await act(s.admin, s.shop, 'start');
     mutes = t.ctx.alertRepo.activeMutes(t.clock.t + 1000);
     expect(mutes).toHaveLength(0);
+  });
+
+  it('Start lifts the stop mute after a monitor restart (a new ServiceActions), and leaves other mutes alone', async () => {
+    const s = await setup();
+    const repo = t.ctx.alertRepo;
+    const rule = repo.listRules().find((x) => x.key === 'pm2.service_down')!;
+    expect((await act(s.admin, s.shop, 'stop')).json().mutedMinutes).toBe(30);
+    const now = t.clock.t;
+    // An admin's own mute on the same service and rule, a stop mute on another service, and an
+    // ended stop mute kept as history.
+    const manual = repo.insertMute({ starts_at: now, ends_at: now + 3_600_000, service_id: s.shop, category: null, rule_id: rule.id, reason: 'Maintenance window', created_by: null });
+    const other = repo.insertMute({ starts_at: now, ends_at: now + 3_600_000, service_id: s.self, category: null, rule_id: rule.id, reason: `${STOP_MUTE_REASON}admin`, created_by: null });
+    const ended = repo.insertMute({ starts_at: now - 7_200_000, ends_at: now - 3_600_000, service_id: s.shop, category: null, rule_id: rule.id, reason: `${STOP_MUTE_REASON}admin`, created_by: null });
+    expect(repo.activeMutes(now + 1000)).toHaveLength(3);
+
+    // What a restart of the monitor leaves: the same database, nothing in memory.
+    t.ctx.actions = new ServiceActions({ link: t.ctx.pm2, alertRepo: repo, audit: t.ctx.audit, now: () => t.clock.t, stopMuteMinutes: () => 30, verifyMs: 300, pollMs: 10, cooldownMs: 0, ownPmId: () => 0 });
+    expect((await act(s.admin, s.shop, 'start')).json()).toMatchObject({ ok: true, status: 'online' });
+
+    const left = repo.listMutes().map((m) => m.id).sort((a, b) => a - b);
+    expect(left).toEqual([manual.id, other.id, ended.id].sort((a, b) => a - b));
+  });
+
+  it('a second Stop replaces the first stop mute instead of adding one', async () => {
+    const s = await setup();
+    await act(s.admin, s.shop, 'stop');
+    pm2.procs[0]!.status = 'online';
+    await act(s.admin, s.shop, 'stop');
+    expect(t.ctx.alertRepo.activeMutes(t.clock.t + 1000)).toHaveLength(1);
   });
 
   it('the stop mute can be switched off with the setting', async () => {

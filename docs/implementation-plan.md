@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H5 code done on the same branch, server checks pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H6 code done on the same branch, server checks pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -187,8 +187,10 @@ Done as patch 0005. The arguments are built in one place (`gitArgs`), so every c
 
 #### H6: Stop mute after a restart (0.25 day)
 
-- [ ] On Start, delete mutes for that service on `pm2.service_down` created by a dashboard Stop, found in the database rather than in memory.
-- [ ] Test across a new `ServiceActions` instance.
+- [x] On Start, delete mutes for that service on `pm2.service_down` created by a dashboard Stop, found in the database rather than in memory.
+- [x] Test across a new `ServiceActions` instance.
+
+Done as patch 0006. The in-memory map is gone. Start and Restart delete that service's mutes on `pm2.service_down` whose reason starts with "Stopped from the dashboard by " and that have not ended (`AlertRepo.deleteServiceMutes`). A mute an admin made by hand has another reason and stays; ended stop mutes stay as history. A second Stop replaces the first stop mute. No migration. Server check: stop a test service, `pm2 restart monitor-api`, start the service; Alerts > Mutes no longer lists the stop mute.
 
 #### H7: Backups (1 day)
 
@@ -400,7 +402,7 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | 6 | History accepts 31 days, metrics kept 7 days | `history.ts` `MAX_RANGE_MS` | H3 |
 | 7 | Top paths count everything as `/`; top IPs always empty; page still shows both | `nginx/aggregate.ts`, `nginx/page.tsx` | H4 |
 | 8 | `git status` can start a program configured by the repository (`core.fsmonitor`) | `github/local.ts` | H5 (fixed) |
-| 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 |
+| 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 (fixed) |
 | 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 |
 | 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 |
 | 12 | Monitor shares fate with PM2 | Deployment | H9 (O1) |
