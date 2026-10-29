@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part in a pull request; branch protection is the owner's step. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 code done on the same branch, server check pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -161,8 +161,8 @@ Acceptance: a direct push to `main` is refused; a fresh clone can follow the REA
 
 #### H2: Auto-archive guard (0.25 day)
 
-- [ ] In `pm2/collector.ts`, run auto-archive only if PM2 listed at least one process other than the monitor itself (by name and by `pm_id`) and other than modules.
-- [ ] Test: PM2 lists only `monitor-api` → nothing is archived.
+- [x] In `pm2/collector.ts`, run auto-archive only if PM2 listed at least one process other than the monitor itself (by name and by `pm_id`) and other than modules.
+- [x] Test: PM2 lists only `monitor-api` → nothing is archived.
 
 #### H3: Ranges capped at retention (0.5 day)
 

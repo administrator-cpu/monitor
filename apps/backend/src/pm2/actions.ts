@@ -2,6 +2,7 @@ import type { ServiceAction, ServiceActionResponse } from '@cc/shared';
 import type { AlertRepo } from '../alerts/repo';
 import type { Audit } from '../audit';
 import type { Pm2Link } from './link';
+import { envPmId, SELF_NAMES } from './self';
 import type { ServiceRow } from './services';
 import type { Pm2Proc } from './types';
 
@@ -36,17 +37,10 @@ export interface ActionDeps {
   cooldownMs?: number;
 }
 
-/** The monitor never acts on itself: a restart would cut the request, and deploys manage it. */
-const SELF_NAMES = new Set(['monitor-api']);
 
 const isRunning = (p: Pm2Proc): boolean => p.status === 'online';
 const isStopped = (p: Pm2Proc): boolean => p.status === 'stopped';
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function envPmId(): number | null {
-  const v = process.env.pm_id;
-  return v !== undefined && /^\d+$/.test(v) ? Number(v) : null;
-}
 
 /**
  * Start, stop and restart for services that are registered here. The caller supplies only a
@@ -61,7 +55,10 @@ export class ServiceActions {
 
   constructor(private readonly d: ActionDeps) {}
 
-  /** Why this service cannot be operated, or null when it can. Used by the detail page too. */
+  /**
+   * Why this service cannot be operated, or null when it can. Used by the detail page too. The
+   * monitor never acts on itself: a restart would cut the request, and deploys manage it.
+   */
   blockedReason(svc: ServiceRow, procs: Pm2Proc[] | null): string | null {
     if (!this.d.link) return 'PM2 monitoring is switched off on the server.';
     if (SELF_NAMES.has(svc.pm2_name.toLowerCase())) return 'The monitor cannot restart itself. It is updated by the deploy pipeline.';
