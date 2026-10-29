@@ -17,6 +17,7 @@ The specification lives in `docs/`. These are the current versions (v3, 2026-10-
 | [`docs/plan-pm2-github-resend.md`](docs/plan-pm2-github-resend.md) | Design and decisions D1 to D10 for Parts 0, A, B, C |
 | `docs/runbook-phase1.md`, `runbook-phase3-5.md`, `runbook-phase6-9.md` | Server setup per phase |
 | `docs/runbook-backups.md` | Nightly, pre-deploy and offsite backups; restore test and restore |
+| `docs/runbook-nginx.md` | Nginx in front of `monitor-api`: rate limits (H8) and the outside port scan |
 
 ## Status
 

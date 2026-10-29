@@ -306,7 +306,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | Read-only `GITHUB_TOKEN`; git run without a shell, fixed arguments, `core.fsmonitor=false` | Built (H5 fixed) |
 | Protected `main` branch (no direct pushes) | Planned (H1) |
 | Off-drive and offsite database backups, tested restore | Built (H7): nightly and pre-deploy on `E:`; offsite task and restore test are owner steps |
-| Nginx `limit_req` on `/webhooks/` and `/agent/` | Planned (H8, M1) |
+| Nginx `limit_req` on `/webhooks/` and `/api/v1/logs/search` (H8), `/agent/` (M1) | H8 configuration ready in `docs/runbook-nginx.md`, to apply on the server; `/agent/` Planned |
 | Agent ingest with per-host hashed tokens, size and rate limits, version check | Planned (M1) |
 | Docker access only through an allowlisting proxy; no exec, archive, export, inspect or create | Planned (M2) |
 | Remote actions pulled by the agent, expiring after 60 s, refused for the agent's own containers | Planned (M5) |

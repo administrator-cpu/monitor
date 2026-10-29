@@ -66,6 +66,8 @@ Vercel (build only, not yet pointed at a public API): set `NEXT_PUBLIC_API_BASE=
 
 ## 5. Before the API is public (plan section 4 preconditions)
 
+Historical: production now runs on port 4111 at `monitor-api.thediv.in`. The current Nginx configuration, with the H8 limits, is in `runbook-nginx.md`.
+
 `NODE_ENV=production` must be set at that point (Secure `__Host-session` cookie). Nginx block for `api.<domain>`:
 
 ```nginx

@@ -259,7 +259,7 @@ Pages: login, change password, Overview, Host, Services, service detail (live, h
 | Git | `execFile`, no shell, fixed arguments, 10 s timeout, `GIT_TERMINAL_PROMPT=0`, `-c safe.directory=*`, `-c core.fsmonitor=false` (H5, fixed: a repository's own config could otherwise make `git status` start a program as the backend's account) | Built |
 | Least privilege | Runs as the PM2 owner (Administrator by the deploy defaults) | [Verify, O2] |
 | Branch protection | None; Parts 0 to C were pushed directly to `main` | [Gap H1] |
-| Nginx `limit_req` | `/api/v1/auth/` only | [Gap H8] add `/webhooks/`, `/api/v1/logs/search`, and `/agent/` in M1 |
+| Nginx `limit_req` | `/api/v1/auth/` on the server. H8: `/webhooks/` (120/min, burst 60, 256 KB bodies) and `/api/v1/logs/search` (6/min, burst 5, preflights not counted), JSON 429 with CORS headers; `runbook-nginx.md`, tested by `nginx-config.test.ts`. `/agent/` in M1 | [Verify] applied on the server |
 | Agent ingest | Section 14.3 | Planned |
 | Docker access | Section 14.4 | Planned |
 | Remote actions | Section 14.7 | Planned |

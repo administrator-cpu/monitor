@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H7 code done on the same branch, server checks pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H8 code done on the same branch, server checks pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -204,8 +204,10 @@ Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and wr
 
 #### H8: Nginx limits and exposure (0.25 day)
 
-- [ ] `limit_req` on `/webhooks/` and `/api/v1/logs/search`.
+- [x] `limit_req` on `/webhooks/` and `/api/v1/logs/search` (configuration in `docs/runbook-nginx.md`; applying it on the server is the owner's step).
 - [ ] Port scan from outside (V11) and record the result.
+
+Done as patch 0008 (documents and a test; no backend code). Limits per client address: webhooks 120 per minute with a burst of 60 and bodies up to 256 KB; log search 6 per minute with a burst of 5, CORS preflights not counted. The auth and search limits answer 429 with the app's JSON error shape and the dashboard's CORS headers, so the page shows "Too many requests" instead of a network error. `apps/backend/test/nginx-config.test.ts` runs the runbook's blocks through `nginx -t` and a burst test wherever nginx is installed and is skipped elsewhere; check in the CI log whether it ran. Owner steps: apply and reload (runbook section 3), then the port scan (section 4, V11).
 
 #### H9: `monitor-api` outside PM2, if O1 is yes (1 day)
 
@@ -318,7 +320,7 @@ Acceptance: every page works for both hosts; emails name the host; revoking the 
 |---|---|
 | HTTPS with renewal, CORS allowlist, cookie flags, login throttling, WSS | Done |
 | Nginx `limit_req` on `/api/v1/auth/` | Done |
-| `limit_req` on `/api/v1/logs/search` and `/webhooks/` | H8 |
+| `limit_req` on `/api/v1/logs/search` and `/webhooks/` | H8 (configuration ready; apply on the server) |
 | Ports 4111 and 4001 not reachable from outside | V11 |
 | Long, unique passwords on every account | Owner to confirm |
 | Backup of the monitor database off the drive and off the server | H7 |
@@ -407,7 +409,7 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | 8 | `git status` can start a program configured by the repository (`core.fsmonitor`) | `github/local.ts` | H5 (fixed) |
 | 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 (fixed) |
 | 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 (code done; offsite task and V19 open) |
-| 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 |
+| 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 (configuration in `runbook-nginx.md`; apply and V11 open) |
 | 12 | Monitor shares fate with PM2 | Deployment | H9 (O1) |
 | 13 | Production port is 4111, documents said 4000 | `deploy.ps1` `-Port 4111`, former `.env.example` | Documents v3 |
 | 14 | Webhook codes 503 and 401, documents said 404 and 400 | `routes/webhooks.ts` | Documents v3 |
