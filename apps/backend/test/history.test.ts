@@ -30,8 +30,61 @@ describe('GET /history/*', () => {
         expect((await t.app.inject({ method: 'GET', url: `/api/v1${u}` })).statusCode).toBe(401);
       }
       expect((await get(t, cookie, `/history/host?from=${NOW}&to=${NOW - 1}`)).statusCode).toBe(400);
-      expect((await get(t, cookie, `/history/host?from=0&to=${NOW}`)).statusCode).toBe(400); // far over 31 days
+      expect((await get(t, cookie, `/history/host?from=0&to=${NOW}`)).statusCode).toBe(400); // far over the retention
       expect((await get(t, cookie, '/history/services/9999')).statusCode).toBe(404);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('accept at most retention.metrics_days, and follow a changed setting at once', async () => {
+    const { t, cookie } = await setup();
+    try {
+      const DAY = 86_400_000;
+      t.ctx.services.discover('api');
+      const svc = t.ctx.services.list(true)[0]!;
+      const urls = (span: number) => [
+        `/history/host?from=${NOW - span}&to=${NOW}`,
+        `/history/nginx?from=${NOW - span}&to=${NOW}`,
+        `/history/mongo?from=${NOW - span}&to=${NOW}`,
+        `/history/services/${svc.id}?from=${NOW - span}&to=${NOW}`,
+        `/services/${svc.id}/tenants/history?key=acme&from=${NOW - span}&to=${NOW}`,
+      ];
+      // Default 7 days: exactly 7 days is accepted, one millisecond more is not (the old limit was 31 days).
+      for (const u of urls(7 * DAY)) expect((await get(t, cookie, u)).statusCode, u).toBe(200);
+      for (const u of urls(7 * DAY + 1)) {
+        const r = await get(t, cookie, u);
+        expect(r.statusCode, u).toBe(400);
+        expect(r.json().message).toBe('The range must be positive and at most 7 days.');
+      }
+      for (const u of urls(20 * DAY)) expect((await get(t, cookie, u)).statusCode, u).toBe(400);
+      expect((await get(t, cookie, '/limits')).json().historyMaxMs).toBe(7 * DAY);
+
+      // Lowered to 3 days: a 7 day range is now refused, and /limits reports the new value.
+      t.ctx.settings.setMany({ 'retention.metrics_days': 3 }, null);
+      for (const u of urls(7 * DAY)) expect((await get(t, cookie, u)).statusCode, u).toBe(400);
+      for (const u of urls(3 * DAY)) expect((await get(t, cookie, u)).statusCode, u).toBe(200);
+      expect((await get(t, cookie, `/history/host?from=${NOW - 4 * DAY}&to=${NOW}`)).json().message).toBe(
+        'The range must be positive and at most 3 days.',
+      );
+      expect((await get(t, cookie, '/limits')).json().historyMaxMs).toBe(3 * DAY);
+
+      // Raised to 30 days: a 20 day range is accepted.
+      t.ctx.settings.setMany({ 'retention.metrics_days': 30 }, null);
+      for (const u of urls(20 * DAY)) expect((await get(t, cookie, u)).statusCode, u).toBe(200);
+      for (const u of urls(31 * DAY)) expect((await get(t, cookie, u)).statusCode, u).toBe(400);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('GET /limits needs a session and reports both limits from the settings', async () => {
+    const { t, cookie } = await setup();
+    try {
+      expect((await t.app.inject({ method: 'GET', url: '/api/v1/limits' })).statusCode).toBe(401);
+      expect((await get(t, cookie, '/limits')).json()).toEqual({ historyMaxMs: 7 * 86_400_000, logSearchMaxMs: 24 * 3_600_000 });
+      t.ctx.settings.setMany({ 'logs.retention_hours': 1.5, 'retention.metrics_days': 1 }, null);
+      expect((await get(t, cookie, '/limits')).json()).toEqual({ historyMaxMs: 86_400_000, logSearchMaxMs: 5_400_000 });
     } finally {
       await t.close();
     }

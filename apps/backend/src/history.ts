@@ -16,7 +16,6 @@ export interface Grid {
 }
 
 export const RAW_STEP_MS = 10_000;
-export const MAX_RANGE_MS = 31 * 86_400_000;
 
 /**
  * The bucket size is the smallest multiple of 10 s that keeps the response within `maxPoints`.
@@ -72,11 +71,20 @@ export function fill<T, K extends string>(
   return Object.fromEntries(keys.map((k) => [k, buckets[k]!.map((b) => reduce(b, columns[k].agg))])) as Record<K, (number | null)[]>;
 }
 
-/** Parses `from` / `to` (epoch ms). Returns null for a range that is empty, reversed or over 31 days. */
-export function parseRange(q: { from?: string; to?: string }, now: number, defaultMs = 3_600_000): { from: number; to: number } | null {
+/**
+ * Parses `from` / `to` (epoch ms). Returns null for a range that is empty, reversed or longer than
+ * `maxMs` (the metrics retention, see `rangeLimits`). A missing `from` falls back to `defaultMs`
+ * before `to`, never more than `maxMs`.
+ */
+export function parseRange(
+  q: { from?: string; to?: string },
+  now: number,
+  maxMs: number,
+  defaultMs = 3_600_000,
+): { from: number; to: number } | null {
   const num = (s: string | undefined): number | null => (s !== undefined && s !== '' && Number.isFinite(Number(s)) ? Number(s) : null);
   const to = num(q.to) ?? now;
-  const from = num(q.from) ?? to - defaultMs;
-  if (!(from < to) || to - from > MAX_RANGE_MS || from < 0) return null;
+  const from = num(q.from) ?? to - Math.min(defaultMs, maxMs);
+  if (!(from < to) || to - from > maxMs || from < 0) return null;
   return { from, to };
 }

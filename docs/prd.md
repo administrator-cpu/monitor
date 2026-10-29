@@ -201,13 +201,13 @@ Up/down and response time, connections versus limit, slow queries from `system.p
 - Retention 24 hours (`logs.retention_hours`).
 - Live tail per service over WebSocket, with backpressure and dropped-line counts.
 - Search in a worker thread, one per user, four overall, 30 s limit, guarded regex, audited. Search covers all hosts or one.
-- **The search range offered is capped at the log retention (decided in v3).** Today the API accepts 7 days while files are deleted after 24 hours (audit item H3).
+- **The search range offered is capped at the log retention (decided in v3).** The API and the picker both stop at `logs.retention_hours` (audit item H3, fixed).
 - Disk guard at 85% of the log volume; refuses to log onto the database volume.
 - Remote hosts: every container's stdout and stderr is shipped, limited to 200 lines per second per container, with dropped counts. An admin can exclude a container from the UI (decided 2026-10-29).
 
 ### 4.6 History
 
-Metric history in SQLite, 7 days; 10-second resolution for 24 hours, then 1 minute. Tenants at 1 minute. Charts with incident markers and visible gaps, per host. **The history range offered is capped at `retention.metrics_days` (decided in v3)**; the API accepts 31 days today (audit item H3).
+Metric history in SQLite, 7 days; 10-second resolution for 24 hours, then 1 minute. Tenants at 1 minute. Charts with incident markers and visible gaps, per host. **The history range offered is capped at `retention.metrics_days` (decided in v3)**, in the API and the picker (audit item H3, fixed).
 
 ### 4.7 Email delivery
 

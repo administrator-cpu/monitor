@@ -26,7 +26,7 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Stack (2) | Built | PM2 hosts the backend (decision O1 pending) |
 | Collectors (4.1) | Built | Auto-archive guard counts the monitor itself [Gap H2] |
 | State store (4.2) | Built | Single host today |
-| Log pipeline (4.3) | Built | Search accepts 7 days, files kept 24 h [Gap H3] |
+| Log pipeline (4.3) | Built | Search range capped at `logs.retention_hours` (H3, fixed) |
 | Nginx (4.4) | Built | Top paths and IPs cannot be filled [Gap H4] |
 | MongoDB (4.5) | Built | |
 | Application agent (4.6) | Built | |
@@ -178,7 +178,7 @@ Latest values plus ring buffers (30 minutes at 2 s for the host, at 5 s per serv
 - First sight of a service: the last ~150 lines of PM2's own files are shown, not stored.
 - `LOG_REQUIRE_SEPARATE_VOLUME` (default on in production) refuses to write logs onto the database volume.
 - Search: worker thread, newest first, `logs.search_max_results` (5,000), 30 s cap, one per user and four overall, regex guard, audited.
-- **[Gap H3]** `routes/logsearch.ts` accepts up to 7 days; files are deleted after `logs.retention_hours` (24). Fix: cap the accepted range and the UI picker at the retention setting.
+- **H3 (fixed):** `routes/logsearch.ts` accepts a range of at most `logs.retention_hours` (24), read on each request; the UI picker offers no more. It accepted 7 days before.
 
 ### 4.4 Nginx
 
@@ -209,9 +209,9 @@ All routes under `/api/v1` are JSON and session-authenticated; state-changing re
 | Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password` |
 | Users (admin) | `GET/POST /users`, `PATCH /users/:id` (includes `canOperate`), `POST /users/:id/reset-password`, `POST /users/:id/revoke-sessions` |
 | Admin | `GET /audit`, `GET/PATCH /settings` |
-| Live views | `GET /overview`, `GET /host`, `GET /nginx`, `GET /mongo`, `GET /mongo/slow-queries`, `GET /events/windows` |
+| Live views | `GET /overview`, `GET /host`, `GET /nginx`, `GET /mongo`, `GET /mongo/slow-queries`, `GET /events/windows`, `GET /limits` (longest history and log search ranges) |
 | Services | `GET /services`, `GET /services/:id`, `PATCH /services/:id` (admin; includes git mapping), `POST /services/:id/actions` (operate, 20/min), `GET /services/:id/git`, `POST /services/:id/git/refresh` (admin, 10/min), `GET /services/:id/tenants`, `GET /services/:id/tenants/history` |
-| History | `GET /history/host`, `/history/services/:id`, `/history/nginx`, `/history/mongo` (31-day maximum [Gap H3]) |
+| History | `GET /history/host`, `/history/services/:id`, `/history/nginx`, `/history/mongo` (at most `retention.metrics_days`, H3) |
 | Alerts | incidents, rules (admin edits), mutes (admin), own subscriptions, status, test email |
 | Email | `GET /email/summary` |
 | Logs | `POST /logs/search` |

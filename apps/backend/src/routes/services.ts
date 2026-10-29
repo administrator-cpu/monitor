@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   serviceActionSchema,
   servicePatchSchema,
+  spanLabel,
   type ServiceActionResponse,
   type GitResponse,
   type ProcessEventDto,
@@ -14,6 +15,7 @@ import type { AppContext } from '../context';
 import { requireUser } from '../guard';
 import { ActionError } from '../pm2/actions';
 import { fill, gridTimes, makeGrid, parseRange } from '../history';
+import { rangeLimits } from '../limits';
 import { liveNames } from '../pm2/collector';
 import { ServiceConflictError } from '../pm2/services';
 
@@ -144,8 +146,9 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!row) return reply.code(404).send({ error: 'not_found' });
     const q = req.query as { key?: string; from?: string; to?: string };
     if (!q.key || q.key.length > 100) return reply.code(400).send({ error: 'invalid_request', message: 'key is required.' });
-    const range = parseRange(q, ctx.now(), 24 * 3_600_000);
-    if (!range) return reply.code(400).send({ error: 'invalid_request', message: 'The range must be positive and at most 31 days.' });
+    const maxMs = rangeLimits(ctx.settings).historyMaxMs;
+    const range = parseRange(q, ctx.now(), maxMs, 24 * 3_600_000);
+    if (!range) return reply.code(400).send({ error: 'invalid_request', message: `The range must be positive and at most ${spanLabel(maxMs)}.` });
     const rows = ctx.db
       .prepare(
         `SELECT m.ts, m.sockets, m.active_users, m.req_per_s, m.p95_ms

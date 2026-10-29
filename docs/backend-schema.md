@@ -175,7 +175,7 @@ Nginx access log source (no path, query, client address or headers):
 {"t":"2026-10-07T10:15:04+00:00","host":"api.example.com","status":200,"rt":0.034,"urt":"0.030","up":"127.0.0.1:3001","bytes":512,"method":"GET"}
 ```
 
-**[Gap H3]** Search accepts 7 days against 24 hours of files; capped at `logs.retention_hours`.
+Search accepts a range of at most `logs.retention_hours` (H3, fixed; it accepted 7 days before).
 
 **[Planned] Remote hosts:** `LOG_ROOT\@<host name>\<project>.<service>\<YYYY-MM-DD>-<HH>.jsonl`. Lines use `pm: -1`, `s: "out" | "err"`, and add `"h": <host id>`. Host 1 paths and lines are unchanged. Caddy access records are never written as log lines.
 
@@ -293,7 +293,7 @@ Service targets (service id) are unchanged on every host. Host-scoped targets on
 | [Planned] `agent_commands` | `retention.audit_days` | |
 | [Planned] `hosts` | Kept, revoked hosts too | |
 
-**[Gap H3]** History accepts 31 days against 7 days of metrics; capped at `retention.metrics_days`.
+History and tenant history accept a range of at most `retention.metrics_days` (H3, fixed; they accepted 31 days before). Both limits are read on each request and served to the UI by `GET /limits`.
 
 ### 9.2 Rollup [Built]
 

@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 code done on the same branch, server check pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 and H3 code done on the same branch, server checks pending. About 4 to 5 days |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -166,9 +166,11 @@ Acceptance: a direct push to `main` is refused; a fresh clone can follow the REA
 
 #### H3: Ranges capped at retention (0.5 day)
 
-- [ ] `POST /logs/search` accepts at most `logs.retention_hours`; the UI picker offers no more.
-- [ ] History routes accept at most `retention.metrics_days`; the UI picker matches.
-- [ ] Tests for both limits and for a changed setting.
+- [x] `POST /logs/search` accepts at most `logs.retention_hours`; the UI picker offers no more.
+- [x] History routes accept at most `retention.metrics_days`; the UI picker matches.
+- [x] Tests for both limits and for a changed setting.
+
+Done as patch 0003: both limits are read from the settings on each request (`src/limits.ts`), so a change applies without a restart. `GET /limits` gives the pickers the same values; a limit between presets is offered as its own last option ("Last 48 hours"). The tenant history route uses the history limit too. The history picker's span was one minute longer than the label; it is now exact.
 
 #### H4: Nginx top lists removed (0.25 day)
 

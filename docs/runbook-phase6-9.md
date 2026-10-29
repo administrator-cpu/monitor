@@ -58,8 +58,8 @@ Only counts and timings leave the process. User ids are never sent, only the num
 
 - **Rollup** runs hourly. Raw 10 s rows older than `retention.metrics_raw_hours` are folded into 1-minute rows in one transaction per table; running it twice changes nothing. It is recorded in `maintenance_runs`.
 - **Retention** deletes by age: metrics, Windows events, slow queries, process events, alerts and the audit log.
-- **History charts** (Host, Service, Nginx, MongoDB) take 1 h to 31 days. Gaps are shown as gaps.
-- **Log search** (`/logs`): up to 7 days, one search per user and four overall, 30 s limit, regex checked for catastrophic patterns, runs in a worker thread. The audit log records the filter, never the results.
+- **History charts** (Host, Service, Nginx, MongoDB) take 1 h up to `retention.metrics_days` (7 days by default). Gaps are shown as gaps.
+- **Log search** (`/logs`): up to `logs.retention_hours` (24 hours by default), one search per user and four overall, 30 s limit, regex checked for catastrophic patterns, runs in a worker thread. The audit log records the filter, never the results.
 - **Windows Event Log** (Windows only): critical, error and warning events every minute; only critical raises `host.eventlog_critical`, and the alert shows provider and event id, not the message.
 
 ## 5. Demo and checks

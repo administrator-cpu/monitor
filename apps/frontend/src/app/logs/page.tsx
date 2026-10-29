@@ -1,26 +1,39 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import type { LogSearchRequest, LogSearchResponse, ServicesResponse } from '@cc/shared';
+import {
+  capRanges,
+  spanLabel,
+  type LogSearchRequest,
+  type LogSearchResponse,
+  type RangeLimitsResponse,
+  type RangeOption,
+  type ServicesResponse,
+} from '@cc/shared';
 import { PageHead, Shell } from '@/components/Shell';
 import { api, ApiError, errorMessage, fetcher } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 
-const WINDOWS = [
+const WINDOWS: readonly RangeOption[] = [
   { id: '15m', label: 'Last 15 minutes', ms: 15 * 60_000 },
   { id: '1h', label: 'Last hour', ms: 3_600_000 },
   { id: '6h', label: 'Last 6 hours', ms: 6 * 3_600_000 },
   { id: '24h', label: 'Last 24 hours', ms: 24 * 3_600_000 },
-] as const;
+];
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
 function Search() {
   const { data: svcs } = useSWR<ServicesResponse>('/services?archived=1', fetcher);
+  // Log files older than `logs.retention_hours` are deleted, so no window reaches further back.
+  const { data: limits } = useSWR<RangeLimitsResponse>('/limits', fetcher, { revalidateOnFocus: false });
+  const windows = useMemo(() => capRanges(WINDOWS, limits?.logSearchMaxMs, (ms) => `Last ${spanLabel(ms)}`), [limits?.logSearchMaxMs]);
   const [picked, setPicked] = useState<string[]>([]);
-  const [win, setWin] = useState<(typeof WINDOWS)[number]['id']>('1h');
+  const [winId, setWin] = useState('1h');
+  // A choice the limit no longer allows falls back to the longest one allowed.
+  const win = windows.find((w) => w.id === winId) ?? windows[windows.length - 1]!;
   const [stream, setStream] = useState<LogSearchRequest['stream']>('all');
   const [query, setQuery] = useState('');
   const [regex, setRegex] = useState(false);
@@ -47,7 +60,7 @@ function Search() {
     }
     setBusy(true);
     const to = Date.now();
-    const from = to - WINDOWS.find((w) => w.id === win)!.ms;
+    const from = to - win.ms;
     try {
       const r = await api<LogSearchResponse>('/logs/search', {
         method: 'POST',
@@ -79,8 +92,8 @@ function Search() {
         <div className="form-row" style={{ marginTop: 12 }}>
           <label>
             Time
-            <select value={win} onChange={(e) => setWin(e.target.value as typeof win)}>
-              {WINDOWS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+            <select value={win.id} onChange={(e) => setWin(e.target.value)}>
+              {windows.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
             </select>
           </label>
           <label>
