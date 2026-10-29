@@ -209,6 +209,13 @@ Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and wr
 
 Done as patch 0008 (documents and a test; no backend code). Limits per client address: webhooks 120 per minute with a burst of 60 and bodies up to 256 KB; log search 6 per minute with a burst of 5, CORS preflights not counted. The auth and search limits answer 429 with the app's JSON error shape and the dashboard's CORS headers, so the page shows "Too many requests" instead of a network error. `apps/backend/test/nginx-config.test.ts` runs the runbook's blocks through `nginx -t` and a burst test wherever nginx is installed and is skipped elsewhere; check in the CI log whether it ran. Owner steps: apply and reload (runbook section 3), then the port scan (section 4, V11).
 
+#### F1: Host collector hangs on Windows (found after the H1 to H8 merge)
+
+- [x] Symptom: "Collector stale" for `host` about every 3 hours on 2026-10-29, each lasting 30 to 50 minutes ("previous run still in flight"); CPU, memory, swap and network showed stale.
+- [x] Cause: on Windows `systeminformation` runs `powershell.exe` for `mem()` (page file), `networkStats()` (adapter statistics and the adapter list) and `fsSize()` without any timeout. The `host` collector started several of them every 2 s; when one hung on WMI, the run stayed in flight and no new run started.
+- [x] Fix, patch 0009 (`collectors/winhost.ts`): on Windows the 2 s collector reads CPU and memory from Node and starts no process; a new `swapnet` collector reads swap and the network byte counters with one script every 15 s; disk sizes come from one script; both through `runPowerShell`, which kills the process after its timeout. Linux keeps `systeminformation` (it reads `/proc`). 5 new tests.
+- [ ] Server check: no "Collector stale" for `host` for a day; the Overview's CPU, memory, swap and network stay live; Task Manager does not show a new `powershell.exe` every 2 s. Network rates now update every 15 s.
+
 #### H9: `monitor-api` outside PM2, if O1 is yes (1 day)
 
 - [ ] Install with `scripts/install-service.ps1` under the account that owns PM2 (so `PM2_HOME` and the PM2 pipe remain reachable).
