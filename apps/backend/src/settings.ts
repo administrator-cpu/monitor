@@ -27,6 +27,15 @@ function normalizeFrom(v: string): string {
   return s;
 }
 
+/** `1.2.3`; the lowest agent version the ingest API accepts. */
+function normalizeVersion(v: string): string {
+  const s = v.trim();
+  if (!/^\d{1,4}\.\d{1,4}\.\d{1,6}$/.test(s)) {
+    throw new SettingsError('invalid_value', 'hosts.min_agent_version: use a version such as 0.1.0');
+  }
+  return s;
+}
+
 function normalizeUrl(v: string): string {
   let u: URL;
   try {
@@ -75,6 +84,10 @@ export const SETTING_DEFS = {
   'github.poll_minutes': { type: 'number', default: 5, int: true, min: 1, max: 1440 },
   /** Stop from the dashboard silences that service's "service down" alert for this long. 0 turns it off. */
   'actions.stop_mute_minutes': { type: 'number', default: 30, int: true, min: 0, max: 1440 },
+  /** Agents older than this get 426 and are audited (phase 11). None: every version is accepted. */
+  'hosts.min_agent_version': { type: 'string', default: null, normalize: normalizeVersion },
+  /** How long a new enrollment token works (phase 11). */
+  'hosts.enroll_minutes': { type: 'number', default: 60, int: true, min: 5, max: 1440 },
   'agent.max_tenants_per_report': { type: 'number', default: 50, int: true, min: 1, max: 500 },
   'mongo.slow_ms': { type: 'number', default: 100, int: true, min: 1, max: 60000 },
 } satisfies Record<string, NumberDef | StringDef>;

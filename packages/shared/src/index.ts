@@ -408,6 +408,7 @@ export const SETTING_GROUPS: readonly (readonly [prefix: string, title: string])
   ['pm2.', 'Services'],
   ['actions.', 'Dashboard actions'],
   ['github.', 'GitHub'],
+  ['hosts.', 'Remote hosts'],
   ['session.', 'Sessions'],
   ['login.', 'Sign-in protection'],
 ];
@@ -514,9 +515,17 @@ export interface ProcessState {
   lastExit?: { at: number; code: number | null; signal: string | null };
 }
 
+export type ServiceKind = 'pm2' | 'container' | 'pseudo';
+
 export interface ServiceDto {
   id: number;
+  /** 1 is this Windows server; other hosts report through their agent (phase 11). */
+  hostId: number;
+  kind: ServiceKind;
+  /** The PM2 name on host 1, `<project>/<service>` for a container on another host. */
+  sourceKey: string;
   name: string;
+  /** Same as `sourceKey`; kept for the pages that predate phase 11. */
   pm2Name: string;
   nginxMatch: string | null;
   publicUrl: string | null;
@@ -684,6 +693,8 @@ export interface IncidentDto {
   severity: Severity;
   serviceId: number | null;
   serviceName: string | null;
+  /** 1 is this server; other ids are agent hosts (phase 11). */
+  hostId: number;
   fingerprint: string;
   state: 'firing' | 'resolved';
   openedAt: number;
@@ -1132,3 +1143,295 @@ export interface EmailSummaryResponse {
   hourly: { ts: number; delivered: number; bad: number }[];
   badLastHour: number;
 }
+
+// ---------------------------------------------------------------------------
+// Remote hosts and agent ingest (phase 11, M1). TRD section 14, backend-schema.md section 13.
+// ---------------------------------------------------------------------------
+
+/** Host 1: this Windows server, fed by the local collectors. */
+export const LOCAL_HOST_ID = 1;
+
+export type HostKind = 'local' | 'agent';
+export type HostOs = 'windows' | 'linux';
+/**
+ * local: host 1. waiting: created, no agent has enrolled yet. online: the agent reported recently.
+ * silent: enrolled, but nothing for a while. revoked: its token no longer works.
+ */
+export type HostStatus = 'local' | 'waiting' | 'online' | 'silent' | 'revoked';
+
+/** A host counts as silent in the list after this long without a request (the alert waits longer). */
+export const HOST_ONLINE_MS = 60_000;
+/** Agent timestamps further than this from the monitor's clock are replaced by the arrival time. */
+export const AGENT_MAX_SKEW_MS = 5 * 60_000;
+
+export interface HostIngestCounts {
+  /** Requests accepted since the monitor started, by endpoint. */
+  metrics: number;
+  logs: number;
+  events: number;
+  app: number;
+  /** Requests refused since the monitor started (bad body, too large, rate limited, too old). */
+  rejected: number;
+  /** Log lines and events received; stored from M3 and M2. */
+  logLines: number;
+  eventCount: number;
+}
+
+export interface HostDto {
+  id: number;
+  name: string;
+  kind: HostKind;
+  os: HostOs;
+  status: HostStatus;
+  /** An agent has exchanged an enrollment token at least once and the host is not revoked. */
+  enrolled: boolean;
+  /** Set while an unused enrollment token exists. */
+  enrollExpiresAt: number | null;
+  agentVersion: string | null;
+  /** As last reported by the agent; null before the first report. */
+  actionsEnabled: boolean | null;
+  lastSeenAt: number | null;
+  /** Agent clock minus monitor clock at the last report, when it was more than 5 minutes off. */
+  clockSkewMs: number | null;
+  createdAt: number;
+  revokedAt: number | null;
+  notes: string | null;
+  /** Live figures from the latest metrics report; null before one arrives. */
+  latest: {
+    at: number;
+    cpuPct: number;
+    memUsedBytes: number;
+    memTotalBytes: number;
+    disks: number;
+    containers: number;
+  } | null;
+  counts: HostIngestCounts | null;
+}
+
+export interface HostsResponse {
+  hosts: HostDto[];
+}
+
+const hostName = z
+  .string()
+  .trim()
+  .min(2)
+  .max(40)
+  .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, 'Use lower-case letters, digits and dashes, starting and ending with a letter or digit.');
+
+export const createHostSchema = z
+  .object({
+    name: hostName,
+    os: z.literal('linux').default('linux'),
+    notes: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+export type CreateHostRequest = z.input<typeof createHostSchema>;
+
+export const updateHostSchema = z
+  .object({
+    name: hostName.optional(),
+    notes: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+export type UpdateHostRequest = z.infer<typeof updateHostSchema>;
+
+/** POST /hosts and POST /hosts/:id/enroll-token: the only time the token is sent. */
+export interface EnrollTokenResponse {
+  host: HostDto;
+  enrollToken: string;
+  enrollExpiresAt: number;
+}
+
+// --- agent ingest (/agent/v1) -------------------------------------------------
+
+export const AGENT_INGEST_PREFIX = '/agent/v1';
+export const AGENT_VERSION_HEADER = 'x-agent-version';
+
+/** Decompressed size limits per endpoint (TRD 14.3). The compressed body may not exceed them either. */
+export const AGENT_INGEST_LIMITS = {
+  enroll: 4 * 1024,
+  metrics: 512 * 1024,
+  logs: 4 * 1024 * 1024,
+  events: 256 * 1024,
+  app: 256 * 1024,
+} as const;
+export type AgentEndpoint = keyof typeof AGENT_INGEST_LIMITS;
+
+/** Requests per minute per host, across every endpoint, and across all hosts together. */
+export const AGENT_RATE_PER_HOST = 600;
+export const AGENT_RATE_GLOBAL = 3000;
+
+const semver = z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,6}$/, 'version must look like 1.2.3');
+/** `<compose project>/<service>`, the source key of a container service. */
+export const containerKey = z
+  .string()
+  .max(160)
+  .regex(/^[a-z0-9][a-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/, 'expected <project>/<service>');
+const finite = z.number().finite();
+const nonNegF = finite.nonnegative();
+const epochMs = z.number().int().positive().max(1e14);
+
+export const agentEnrollSchema = z
+  .object({
+    enrollToken: z.string().min(16).max(200),
+    hostname: z.string().trim().min(1).max(253),
+    os: z.enum(['windows', 'linux']),
+    agentVersion: semver,
+  })
+  .strict();
+export type AgentEnrollRequest = z.infer<typeof agentEnrollSchema>;
+export interface AgentEnrollResponse {
+  hostId: number;
+  hostName: string;
+  token: string;
+}
+
+const agentDiskSchema = z
+  .object({
+    volume: z.string().min(1).max(200),
+    usedBytes: nonNegF,
+    totalBytes: nonNegF,
+    readBps: nonNegF.nullable().optional(),
+    writeBps: nonNegF.nullable().optional(),
+  })
+  .strict();
+
+export const agentContainerSchema = z
+  .object({
+    key: containerKey,
+    name: z.string().min(1).max(200),
+    instances: z.number().int().nonnegative().max(1000),
+    instancesRunning: z.number().int().nonnegative().max(1000),
+    state: z.enum(['running', 'exited', 'paused', 'restarting', 'created', 'dead', 'removing']),
+    health: z.enum(['healthy', 'unhealthy', 'starting']).nullable(),
+    restartsTotal: z.number().int().nonnegative(),
+    cpuPct: nonNegF,
+    memBytes: nonNegF,
+    startedAt: epochMs.nullable(),
+  })
+  .strict();
+export type AgentContainer = z.infer<typeof agentContainerSchema>;
+
+/** POST /agent/v1/metrics, every 10 s. Sections other than `host` arrive with M2 to M4. */
+export const agentMetricsSchema = z
+  .object({
+    v: z.literal(1),
+    ts: epochMs,
+    actions: z.enum(['on', 'off']),
+    host: z
+      .object({
+        cpuPct: nonNegF.max(100),
+        cpuPerCore: z.array(nonNegF.max(100)).max(1024),
+        memUsedBytes: nonNegF,
+        memTotalBytes: nonNegF,
+        swapUsedBytes: nonNegF,
+        swapTotalBytes: nonNegF,
+        netRxBps: nonNegF,
+        netTxBps: nonNegF,
+        uptimeS: nonNegF,
+        pendingReboot: z.boolean(),
+        disks: z.array(agentDiskSchema).max(64),
+      })
+      .strict(),
+    containers: z.array(agentContainerSchema).max(500).optional(),
+    // Validated for shape now, stored from M4.
+    mongo: z.record(z.unknown()).optional(),
+    gateway: z
+      .object({
+        perHost: z
+          .array(
+            z
+              .object({
+                host: z.string().min(1).max(253),
+                requests: z.number().int().nonnegative(),
+                s2xx: z.number().int().nonnegative(),
+                s3xx: z.number().int().nonnegative(),
+                s4xx: z.number().int().nonnegative(),
+                s5xx: z.number().int().nonnegative(),
+                p50Ms: nonNegF,
+                p95Ms: nonNegF,
+                bytes: nonNegF,
+              })
+              .strict(),
+          )
+          .max(200),
+        certs: z
+          .array(
+            z.object({ host: z.string().min(1).max(253), notAfter: epochMs.nullable(), error: z.string().max(500).nullable() }).strict(),
+          )
+          .max(200),
+      })
+      .strict()
+      .optional(),
+    checks: z
+      .object({
+        backupNewestAt: epochMs.nullable(),
+        backupNewestBytes: nonNegF.nullable(),
+        offsiteOkAt: epochMs.nullable(),
+        f2b: z
+          .array(z.object({ jail: z.string().min(1).max(100), bans: z.number().int().nonnegative(), unbans: z.number().int().nonnegative() }).strict())
+          .max(50),
+        sshFailures: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
+    agent: z
+      .object({
+        droppedLogLines: z.number().int().nonnegative(),
+        bufferBytes: z.number().int().nonnegative(),
+        collectors: z
+          .array(
+            z.object({ name: z.string().min(1).max(40), lastOkAt: epochMs.nullable(), error: z.string().max(500).nullable() }).strict(),
+          )
+          .max(32),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type AgentMetrics = z.infer<typeof agentMetricsSchema>;
+
+/** One log line is cut to this many characters by the agent; longer lines are refused here. */
+export const AGENT_LOG_LINE_MAX = 65_536;
+
+/** POST /agent/v1/logs, every 1 s or 256 KB. Stored from M3. */
+export const agentLogsSchema = z
+  .object({
+    v: z.literal(1),
+    batches: z
+      .array(
+        z
+          .object({
+            service: containerKey,
+            lines: z
+              .array(z.object({ ts: epochMs, s: z.enum(['out', 'err']), msg: z.string().max(AGENT_LOG_LINE_MAX) }).strict())
+              .max(20_000),
+            dropped: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(500),
+  })
+  .strict();
+export type AgentLogs = z.infer<typeof agentLogsSchema>;
+
+/** POST /agent/v1/events, as containers change state. Stored from M2. */
+export const agentEventsSchema = z
+  .object({
+    v: z.literal(1),
+    events: z
+      .array(
+        z
+          .object({
+            ts: epochMs,
+            service: containerKey,
+            event: z.enum(['die', 'oom', 'health_status', 'start', 'stop', 'restart']),
+            detail: z.record(z.union([z.string().max(200), z.number().finite(), z.boolean(), z.null()])).optional(),
+          })
+          .strict(),
+      )
+      .max(1000),
+  })
+  .strict();
+export type AgentEvents = z.infer<typeof agentEventsSchema>;

@@ -130,6 +130,8 @@ export class AlertRepo {
   insertIncident(v: {
     ruleId: number;
     serviceId: number | null;
+    /** Defaults to host 1, this server. */
+    hostId?: number;
     fingerprint: string;
     openedAt: number;
     peak: number | null;
@@ -137,10 +139,10 @@ export class AlertRepo {
   }): IncidentView {
     const info = this.db
       .prepare(
-        `INSERT INTO alert_incidents (rule_id, service_id, fingerprint, state, opened_at, peak_value, summary)
-         VALUES (?, ?, ?, 'firing', ?, ?, ?)`,
+        `INSERT INTO alert_incidents (rule_id, service_id, host_id, fingerprint, state, opened_at, peak_value, summary)
+         VALUES (?, ?, ?, ?, 'firing', ?, ?, ?)`,
       )
-      .run(v.ruleId, v.serviceId, v.fingerprint, v.openedAt, v.peak, v.summary);
+      .run(v.ruleId, v.serviceId, v.hostId ?? 1, v.fingerprint, v.openedAt, v.peak, v.summary);
     return this.getIncident(Number(info.lastInsertRowid)) as IncidentView;
   }
 

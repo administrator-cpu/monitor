@@ -197,7 +197,7 @@ describe('ServicesRepo and the pm2 collector', () => {
   it('discovers a service on first sight, keeps it, and un-archives a reappearing one', () => {
     const { services, clock } = setup();
     const a = services.discover('api');
-    expect(a).toMatchObject({ name: 'api', pm2_name: 'api', is_archived: 0 });
+    expect(a).toMatchObject({ name: 'api', source_key: 'api', is_archived: 0 });
     expect(services.discover('api').id).toBe(a.id);
     services.update(a.id, { isArchived: true }, new Set());
     expect(services.list()).toHaveLength(0);
@@ -222,7 +222,7 @@ describe('ServicesRepo and the pm2 collector', () => {
     services.update(a.id, { name: 'worker' }, new Set());
     const w = services.discover('worker');
     expect(w.name).toBe('worker (2)');
-    expect(w.pm2_name).toBe('worker');
+    expect(w.source_key).toBe('worker');
   });
 
   it('marks a service stale after the configured hours', () => {
@@ -265,7 +265,7 @@ describe('ServicesRepo and the pm2 collector', () => {
         state,
         events: new ProcessEvents(),
         now: () => clock.t,
-        autoArchive: { minutes: () => minutes, archive: (svc) => archived.push(svc.pm2_name) },
+        autoArchive: { minutes: () => minutes, archive: (svc) => archived.push(svc.source_key) },
         ownPmId: () => ownPmId,
       });
       return { c, clock, state, archived, gone, services };

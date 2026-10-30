@@ -24,7 +24,7 @@ export function logSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
       const problem = regexProblem(q.query);
       if (problem) return reply.code(400).send({ error: 'invalid_regex', message: problem });
     }
-    const known = new Set(ctx.services.list(true).map((s) => s.pm2_name));
+    const known = new Set(ctx.services.list(true).map((s) => s.source_key));
     const unknown = q.services.filter((s) => !SPECIAL.has(s) && !known.has(s));
     if (unknown.length > 0) return reply.code(400).send({ error: 'unknown_service', message: 'One of the services is not known.' });
 

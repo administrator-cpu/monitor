@@ -152,3 +152,58 @@ test('log search finds lines across a time range, refuses a dangerous pattern an
   await expect(page.locator('body')).toContainText('log_search', { timeout: 15_000 });
   await expect(page.locator('body')).not.toContainText('chatty line 1');
 });
+
+test('an admin adds a host; its agent enrolls once, reports, and is refused after a revoke (phase 11 M1)', async () => {
+  const page = shared;
+  const apiBase = process.env.E2E_API ?? 'http://127.0.0.1:4100';
+  await page.goto('/admin/hosts');
+  await expect(page.getByRole('heading', { name: 'Hosts', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('host-status-windows-vps')).toHaveText('this server');
+
+  await page.getByRole('button', { name: 'Add host' }).click();
+  await page.getByLabel('Name (lower case, digits, dashes)').fill('e2e-linux');
+  await page.getByRole('button', { name: 'Add host and make a token' }).click();
+  const env = page.getByTestId('enroll-env');
+  await expect(env).toContainText('CC_HOST_NAME=e2e-linux');
+  const enrollToken = /CC_ENROLL_TOKEN=(\S+)/.exec((await env.textContent()) ?? '')?.[1];
+  expect(enrollToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  await expect(page.getByTestId('host-status-e2e-linux')).toHaveText('waiting for agent');
+
+  // The agent's side, as plain HTTP without a browser Origin.
+  const enroll = (token: string) =>
+    page.request.post(`${apiBase}/agent/v1/enroll`, { data: { enrollToken: token, hostname: 'e2e', os: 'linux', agentVersion: '0.1.0' } });
+  const first = await enroll(enrollToken!);
+  expect(first.status()).toBe(200);
+  const hostToken = (await first.json()).token as string;
+  expect((await enroll(enrollToken!)).status()).toBe(401);
+  const report = () =>
+    page.request.post(`${apiBase}/agent/v1/metrics`, {
+      headers: { authorization: `Bearer ${hostToken}`, 'x-agent-version': '0.1.0' },
+      data: {
+        v: 1, ts: Date.now(), actions: 'off',
+        host: {
+          cpuPct: 12, cpuPerCore: [12], memUsedBytes: 1073741824, memTotalBytes: 4294967296, swapUsedBytes: 0, swapTotalBytes: 0,
+          netRxBps: 0, netTxBps: 0, uptimeS: 60, pendingReboot: false, disks: [{ volume: '/', usedBytes: 1, totalBytes: 2 }],
+        },
+      },
+    });
+  expect((await report()).status()).toBe(204);
+
+  await page.getByRole('button', { name: 'Done, I have saved it' }).click();
+  await expect(page.getByTestId('enroll-token')).toHaveCount(0);
+  await page.reload();
+  const row = page.getByTestId('host-e2e-linux');
+  await expect(page.getByTestId('host-status-e2e-linux')).toHaveText('online', { timeout: 15_000 });
+  await expect(row).toContainText('CPU 12%');
+  await expect(row).toContainText('actions off');
+  await expect(row).not.toContainText(enrollToken!);
+
+  page.once('dialog', (d) => void d.accept());
+  await row.getByRole('button', { name: 'Revoke' }).click();
+  await expect(page.getByTestId('host-status-e2e-linux')).toHaveText('revoked');
+  expect((await report()).status()).toBe(401);
+
+  await page.goto('/admin/audit');
+  await expect(page.locator('body')).toContainText('host_revoked', { timeout: 15_000 });
+  await expect(page.locator('body')).toContainText('host_enrolled');
+});

@@ -20,6 +20,7 @@ export interface IncidentRow {
   id: number;
   rule_id: number;
   service_id: number | null;
+  host_id: number;
   fingerprint: string;
   state: 'firing' | 'resolved';
   opened_at: number;
@@ -86,6 +87,7 @@ export const RULE_META: Record<string, RuleMeta> = {
   'monitor.sqlite_write_failing': m(true, null),
   'monitor.email_bounce_spike': m(true, 'emails / hour'),
   'monitor.email_failing': m(true, null, { emailable: false }),
+  'host.silent': m(true, null),
 };
 
 /**
@@ -111,9 +113,20 @@ const TARGET_PARENTS: Record<string, string[]> = {
 export const targetOf = (inc: Pick<IncidentRow, 'fingerprint'>, ruleKey: string): string =>
   inc.fingerprint.slice(ruleKey.length + 1);
 
+/**
+ * Host scope (phase 11): while a host is silent, every other incident of that host is recorded but
+ * not emailed, except a failing outside-in probe, which points at the network rather than the agent.
+ */
+const HOST_PARENT = 'host.silent';
+const HOST_PARENT_EXEMPT = new Set([HOST_PARENT, 'host.probe_failed']);
+
 /** The firing incident that suppresses `child`, if any. */
 export function findParent(child: IncidentView, firing: IncidentView[]): IncidentView | undefined {
   const childTarget = targetOf(child, child.rule_key);
+  if (!HOST_PARENT_EXEMPT.has(child.rule_key)) {
+    const silent = firing.find((p) => p.rule_key === HOST_PARENT && p.state === 'firing' && p.host_id === child.host_id);
+    if (silent) return silent;
+  }
   for (const p of firing) {
     if (p.id === child.id || p.state !== 'firing') continue;
     if (child.service_id !== null && p.service_id === child.service_id) {

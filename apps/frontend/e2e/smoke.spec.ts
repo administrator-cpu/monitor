@@ -176,7 +176,7 @@ test.describe('phone width', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
-    await tabbar.getByRole('link', { name: 'Host' }).click();
+    await tabbar.getByRole('link', { name: 'Host', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Host' })).toBeVisible();
     const overflow2 = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

@@ -19,7 +19,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
 | 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 and H8 server steps and the open checks in 0.3 |
-| 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
+| 11 | Multi-host M1 to M6 | In progress | M1 code done (patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. Server: V25 before merge, then `docs/runbook-hosts.md`. M2 to M6 open |
 | later | TOTP, more alert channels | Not started | |
 
 ### 0.2 What happens next
@@ -29,7 +29,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 3. **H2 to H8**, one small pull request each, each checked on the server (0.3).
 4. **Run the open on-host checks** V1 to V18 and record results here.
 5. **Owner inputs for phase 11:** O4 (health path), O5 (backup folder and offsite marker), O6 (Caddy log to file), plus the M2 facts V20 to V24.
-6. **Phase 11** from M1 to M6. M1 and M2 already put the Ubuntu host on the dashboard with alerts.
+6. **Phase 11** from M1 to M6. M1 code is done (patch 0016); before merging it, V25 (migration `010` on a copy, `docs/runbook-hosts.md` section 1). M1 and M2 already put the Ubuntu host on the dashboard with alerts.
 7. **Before M5 is switched on:** decide O3 (TOTP per action or Cloudflare Access).
 
 ### 0.3 On-host checks (canonical list)
@@ -62,6 +62,8 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V22 | Ubuntu: `/var/log/auth.log` and `/var/log/fail2ban.log` exist and are group `adm` | 11 (M4) | Open |
 | V23 | Ubuntu: Caddy writes JSON access logs to a file in a named volume and not to stdout (O6) | 11 (M4) | Open |
 | V24 | Ubuntu: backup folder path and the `.offsite-ok` marker after an upload (O5) | 11 (M4) | Open |
+| V25 | Migration `010` on a copy of the production database: `pnpm --filter @cc/backend migration:check <copy>` prints OK; record the time (`docs/runbook-hosts.md` section 1). Before the M1 merge | 11 (M1) | Open. Here: 0.06 s on a 164 MB database shaped like eight days of production data, every row, service key and open incident kept |
+| V26 | After the M1 deploy: pages and open incidents unchanged; Hosts lists `windows-vps`; `/agent/v1/metrics` gives 401 without a token and 403 with an `Origin` through Nginx; optional enrollment dry run (`docs/runbook-hosts.md` section 3) | 11 (M1) | Open |
 
 ### 0.4 Change log
 
@@ -77,6 +79,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | H9 merged (PR #7); service installed on the VPS. F4: stop hang fixed by hand, patch 0013 for the scripts |
 | v3 | 2026-10-30 | F4 merged (PR #8); its deploy was the first through the service (1 min, no forced stop). PM2 entry deleted. H9 and V2 done; V8 partly |
 | v3 | 2026-10-30 | P1: Overview summary (monitor card, alerts, backups and certificates, GitHub and email), patch 0015 |
+| v3 | 2026-10-30 | P1 merged (PR #10). Phase 11 M1 code done as patch 0016; V25 and V26 added. The new settings use the prefix `hosts.` (not `agent.`, which stays hidden for the unread `agent.max_tenants_per_report`) |
 
 ---
 
@@ -268,25 +271,29 @@ Acceptance for 10.5: every H item merged through a pull request, its test green,
 
 ---
 
-### Phase 11: Multi-Host Monitoring [Planned]
+### Phase 11: Multi-Host Monitoring [In progress]
 
 **Goal:** the Ubuntu server (`ubuntu-acs`) monitored and operable from the same dashboard through `cc-node-agent` and `cc-docker-proxy`. Requirements PRD 16, design TRD 14, data schema 13.
 
 **Starts when:** H1 is done (branch protection), O1 is decided, and a production database copy is available for testing `010`.
 
-#### M1: Hosts, ingest, enrollment (4 to 5 days)
+#### M1: Hosts, ingest, enrollment (4 to 5 days) [Code done, patch 0016]
 
-- [ ] Migration `010_hosts.sql` (schema 13.1 to 13.3), timed on a production copy; existing tests unchanged.
-- [ ] `ServicesRepo` keyed by `(host_id, source_key)`; DTOs gain `hostId`, `kind`, `sourceKey` (keep `pm2Name`).
-- [ ] State store keyed by host; host 1 fed by today's collectors.
-- [ ] Fingerprint helper: host-scoped targets on hosts other than 1 prefixed `@<id>/`.
-- [ ] Enrollment and host tokens (hashed, single use, 1 hour), revoke, re-enroll.
-- [ ] `/agent/v1/enroll`, `metrics`, `logs`, `events`, `app` in their own scope: Zod, gzip with decompressed limits, per-host and global limits, version check, clock skew, `Origin` refused, no cookies.
-- [ ] Hosts admin page: list, add (shows the enrollment token and compose snippet once), revoke, re-enroll; audit events.
-- [ ] Nginx: `/agent/` location, `client_max_body_size 2m`, `limit_req`, read timeout above 30 s.
-- [ ] `host.silent` rule and evaluator.
+- [x] Migration `010_hosts.sql` (schema 13.1 to 13.3). Timed here on a 164 MB database shaped like eight days of production data: 0.06 s, every row kept. On the production copy: V25, with the new `migration:check` command. Existing tests pass; four changed only where they name the new schema (rule count 30, migration list, `source_key`, `host_id` in a rolled-up row).
+- [x] `ServicesRepo` keyed by `(host_id, source_key)`; DTOs gain `hostId`, `kind`, `sourceKey` (`pm2Name` kept). `list()` and `getByPm2Name()` mean host 1 unless asked otherwise, so PM2, Nginx, GitHub and the log folders see exactly what they saw before. PM2 actions refuse services on other hosts.
+- [x] State store keyed by host: `HostSlice` per host (CPU, memory, swap, network, uptime, disks, series, the latest container list); host 1 fed by today's collectors; processes tagged by host. Persistence, rollup and the host history (`GET /history/host?host=<id>`) group by host.
+- [x] Fingerprint helper `hostTarget()`: host-scoped targets on hosts other than 1 prefixed `@<id>/`; host 1 unchanged.
+- [x] Enrollment and host tokens: 32 random bytes, only SHA-256 hashes stored, single use, 60 minutes (`hosts.enroll_minutes`); revoke; a new enrollment token re-enrolls (also after a revoke) and rotates the host token when the agent uses it.
+- [x] `/agent/v1/enroll`, `metrics`, `logs`, `events`, `app` in their own scope: strict Zod schemas, gzip with the limit enforced while inflating, 600 per minute per host and 3000 overall (429, `Retry-After`), enroll 10 per minute per address, `X-Agent-Version` with `hosts.min_agent_version` (426, audited once an hour), clock skew over 5 minutes shown on the Hosts page, `Origin` refused (403), no cookies, no CORS. Metrics feed the host's slice and are stored; logs, events and relayed reports are validated and counted, and stored from M3, M2 and M4.
+- [x] Hosts admin page (Admin → Hosts): list with status, last contact, agent version, actions on or off, latest figures and counts; add (shows the enrollment token and the env file lines once); new token; revoke; rename and notes. Audit events `host_created`, `host_updated`, `host_enrolled`, `host_token_rotated`, `host_revoked`, `agent_version_rejected`. The compose snippet comes with the agent image in M2.
+- [x] Nginx: `/agent/` location in `runbook-nginx.md` with `client_max_body_size 2m`, `limit_req` (1200 per minute, burst 100), cookies removed, 60 s read timeout; checked with Nginx 1.24 by `nginx-config.test.ts`.
+- [x] `host.silent` rule (critical, 120 s after 30 s without a request) and evaluator; it suppresses the host's other incidents except `host.probe_failed`; a revoked host's incidents end without email.
+- [x] Tests: 20 backend (`hosts.test.ts`: migration on a filled 009 database, enrollment, rotation, revoke, `Origin`, gzip bomb, strict bodies, version, rate limits, storage per host, `host.silent`, services per host), one Nginx, one Playwright (add a host, enroll once, report, revoke).
+- [ ] Owner: V25 before the merge; Nginx `/agent/` and V26 after (`docs/runbook-hosts.md`).
 
-Acceptance: `010` on the production copy leaves every page, rule and open incident unchanged; an enrollment token works once and not after an hour; a revoked token gets 401; a 100 KB gzip body that inflates past the limit gets 413; a request with `Origin` gets 403.
+Acceptance: `010` on the production copy leaves every page, rule and open incident unchanged; an enrollment token works once and not after an hour; a revoked token gets 401; a 100 KB gzip body that inflates past the limit gets 413; a request with `Origin` gets 403. The last four are tests in `hosts.test.ts`; the first is V25 and V26.
+
+Not in M1, as planned: container discovery and services from the container list (M2), host rules for remote hosts (CPU, memory, disks: M2, using `hostTarget()`), log storage (M3), the host switcher (M2 minimal, M6 everywhere).
 
 #### M2: Agent, proxy, host and containers (4 to 5 days)
 
@@ -299,7 +306,9 @@ Acceptance: `010` on the production copy leaves every page, rule and open incide
 - [ ] `pnpm demo` with two hosts (fake Docker API and fixture `/proc`).
 - [ ] On the server: V20, V21.
 
-Acceptance: the Ubuntu host appears within a minute of `docker compose up -d` with CPU, memory, swap, disks and every `acs` container; stopping `cpe-sim` on the server opens "service down" and starting it resolves; stopping the agent raises `host.silent` and hides that host's other alerts.
+Acceptance: the Ubuntu host appears within a minute of `docker compose up -d` with CPU, memory, swap, disks and every `acs` container; stopping `cpe-sim` on the server opens "service down" and starting it resolves; stopping the agent raises `host.silent` and hides that host's other alerts (the rule and its suppression exist since M1).
+
+Also in M2: the host rules (`host.disk_*`, `host.cpu_high`, `host.mem_high`, `host.pending_reboot`) evaluated for agent hosts with `hostTarget()`, and `tls_certs` keyed by `(host_id, host)` before M4 checks certificates on other hosts (its primary key is still `host`).
 
 #### M3: Logs (2 to 3 days)
 

@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { href: '/alerts', label: 'Alerts' },
   { href: '/email', label: 'Email' },
   { href: '/admin/users', label: 'Users', admin: true },
+  { href: '/admin/hosts', label: 'Hosts', admin: true },
   { href: '/admin/settings', label: 'Settings', admin: true },
   { href: '/admin/audit', label: 'Audit log', admin: true },
 ];

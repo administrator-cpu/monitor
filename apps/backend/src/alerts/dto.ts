@@ -33,6 +33,7 @@ export function toIncidentDto(i: IncidentView): IncidentDto {
     severity: i.severity,
     serviceId: i.service_id,
     serviceName: i.service_name,
+    hostId: i.host_id,
     fingerprint: i.fingerprint,
     state: i.state,
     openedAt: i.opened_at,

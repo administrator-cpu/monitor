@@ -13,6 +13,7 @@ import { EmailStats } from './email/stats';
 import { GitHubClient } from './github/client';
 import { readLocalCommit, type LocalRead } from './github/local';
 import { GitMonitor } from './github/monitor';
+import { HostsRepo } from './hosts/repo';
 import { LiveHub } from './hub';
 import { LogSystem, type LogSystemOptions } from './logs';
 import { LogSearcher, type SearcherOptions } from './logs/searcher';
@@ -47,6 +48,8 @@ export interface AppContext {
   logs: LogSystem;
   searcher: LogSearcher;
   services: ServicesRepo;
+  /** Host 1 (this server) and the agent hosts (phase 11). */
+  hosts: HostsRepo;
   procEvents: ProcessEvents;
   /** Null when PM2 monitoring is switched off (PM2_ENABLED=false). */
   pm2: Pm2Link | null;
@@ -91,6 +94,7 @@ export function createContext(opts: {
   const scheduler = new Scheduler(opts.log, now);
 
   const services = new ServicesRepo(opts.db, now, () => settings.get('pm2.stale_hours'));
+  const hosts = new HostsRepo(opts.db, now);
   const procEvents = new ProcessEvents();
   const persistence = new Persistence(opts.db, state, procEvents, services, now);
   const alertRepo = new AlertRepo(opts.db, now);
@@ -142,6 +146,7 @@ export function createContext(opts: {
     persistence: () => persistence.status(),
     agentEnabled: (id) => services.get(id)?.agent_enabled === 1,
     emailBadSince: (since) => email.badSince(since),
+    agentHosts: () => hosts.enrolledAgents().map((h) => ({ id: h.id, name: h.name, lastSeenAt: hosts.lastSeenAt(h.id) })),
     log: opts.log,
     now,
     emit: (kind, fields) => ctx.hub?.broadcastEvent(kind, fields),
@@ -182,6 +187,7 @@ export function createContext(opts: {
     logs,
     searcher: new LogSearcher({ ...ov.searchOptions }),
     services,
+    hosts,
     procEvents,
     pm2,
     persistence,

@@ -27,7 +27,7 @@ describe('rollup', () => {
     expect(out.rolled.metrics_host).toBe(1);
     expect(db.prepare('SELECT COUNT(*) AS n FROM metrics_host WHERE res_s = 10').get()).toEqual({ n: 0 });
     expect(db.prepare('SELECT * FROM metrics_host WHERE res_s = 60').get()).toEqual({
-      res_s: 60, ts: MIN,
+      host_id: 1, res_s: 60, ts: MIN,
       cpu_pct: 35, // avg of 10..60
       cpu_max_core_pct: 70, // peak survives
       mem_used_bytes: 103, // avg 102.5 rounded

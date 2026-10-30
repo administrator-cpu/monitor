@@ -4,10 +4,12 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
-import { API_PREFIX, CSRF_HEADER, CSRF_VALUE, WS_CLOSE } from '@cc/shared';
+import { AGENT_INGEST_PREFIX, API_PREFIX, CSRF_HEADER, CSRF_VALUE, WS_CLOSE } from '@cc/shared';
 import type { AppContext } from './context';
 import { MAX_CONNECTIONS_PER_USER } from './hub';
+import { agentIngestRoutes } from './hosts/ingest';
 import { adminRoutes } from './routes/admin';
+import { hostRoutes } from './routes/hosts';
 import { alertRoutes } from './routes/alerts';
 import { authRoutes } from './routes/auth';
 import { monitorRoutes } from './routes/monitor';
@@ -107,6 +109,9 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
 
   webhookRoutes(app, ctx);
 
+  // Agents on other hosts (phase 11): their own scope, no cookies, no CORS, Origin refused.
+  await app.register(async (scope) => agentIngestRoutes(scope, ctx), { prefix: AGENT_INGEST_PREFIX });
+
   await app.register(
     async (api) => {
       authRoutes(api, ctx);
@@ -114,6 +119,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
       adminRoutes(api, ctx);
       monitorRoutes(api, ctx);
       serviceRoutes(api, ctx);
+      hostRoutes(api, ctx);
       alertRoutes(api, ctx);
       emailRoutes(api, ctx);
       nginxRoutes(api, ctx);

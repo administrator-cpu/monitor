@@ -52,7 +52,7 @@ db.transaction(() => {
   const ngs = db.prepare('INSERT INTO metrics_nginx_service (service_id, res_s, ts, requests, s2xx, s3xx, s4xx, s5xx, p50_ms, p95_ms, bytes_out) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?)');
   const app = db.prepare('INSERT INTO metrics_app_service (service_id, res_s, ts, sockets, active_users, req_per_s, err5xx_per_s, p95_ms, event_loop_lag_ms, event_loop_lag_max, heap_used_bytes, rss_bytes) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)');
   for (let sid = 1; sid <= SERVICES; sid++) {
-    db.prepare("INSERT INTO services (id, name, pm2_name, first_seen_at, last_seen_at, agent_enabled) VALUES (?, ?, ?, 0, 0, 1)").run(sid, `svc-${sid}`, `svc-${sid}`);
+    db.prepare("INSERT INTO services (id, name, source_key, first_seen_at, last_seen_at, agent_enabled) VALUES (?, ?, ?, 0, 0, 1)").run(sid, `svc-${sid}`, `svc-${sid}`);
     times((ts, res) => {
       proc.run(sid, res, ts, rnd(1, 80), rnd(1e8, 6e8), 3600 + ts / 1000);
       ngs.run(sid, res, ts, Math.round(rnd(10, 2000)), Math.round(rnd(10, 1900)), Math.round(rnd(0, 50)), rnd(5, 40), rnd(50, 900), Math.round(rnd(1e4, 1e7)));

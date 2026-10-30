@@ -7,6 +7,7 @@ import {
   createEvaluators,
   fingerprintOf,
   REQUIRED_COLLECTORS,
+  type AgentHostView,
   type EvalContext,
   type Evaluator,
   type Observation,
@@ -27,6 +28,8 @@ export interface EngineDeps {
   agentEnabled?: (serviceId: number) => boolean;
   /** Bounced plus complained emails since the given time (from the Resend webhooks). */
   emailBadSince?: (since: number) => number;
+  /** Enrolled agent hosts for `host.silent` (phase 11); none when left out. */
+  agentHosts?: () => AgentHostView[];
   log: Pick<Logger, 'warn' | 'info'>;
   now: () => number;
   /** Broadcasts to the browsers (WebSocket event messages). */
@@ -112,6 +115,7 @@ export class AlertEngine {
       email: () => ({ consecutiveFailures: this.d.notifier.failures }),
       agentEnabled: (id) => this.d.agentEnabled?.(id) ?? false,
       emailBadSince: (since) => this.d.emailBadSince?.(since) ?? 0,
+      agentHosts: () => this.d.agentHosts?.() ?? [],
     };
 
     for (const rule of rules) {
@@ -185,6 +189,7 @@ export class AlertEngine {
     const inc = this.d.repo.insertIncident({
       ruleId: rule.id,
       serviceId: o.serviceId,
+      hostId: o.hostId,
       fingerprint: fp,
       openedAt: now,
       peak: o.value,
@@ -210,6 +215,19 @@ export class AlertEngine {
     const now = this.d.now();
     for (const inc of this.d.repo.firing()) {
       if (inc.service_id === serviceId) this.resolve(inc, now, false);
+    }
+    this.syncSuppression();
+  }
+
+  /**
+   * A revoked host's incidents end quietly (its history stays): the operator has taken it out of
+   * monitoring, so neither "still firing" nor "resolved" emails would mean anything.
+   */
+  onHostRevoked(hostId: number): void {
+    if (hostId === 1) return;
+    const now = this.d.now();
+    for (const inc of this.d.repo.firing()) {
+      if (inc.host_id === hostId) this.resolve(inc, now, false);
     }
     this.syncSuppression();
   }

@@ -3,7 +3,7 @@ import type { HistoryRange, HistoryResponse, ProcessEventDto } from '@cc/shared'
 import type { AppContext } from '../context';
 import type { FastifyReply } from 'fastify';
 import { requireUser } from '../guard';
-import { spanLabel } from '@cc/shared';
+import { LOCAL_HOST_ID, spanLabel } from '@cc/shared';
 import { fill, gridTimes, makeGrid, parseRange, type Column, type Grid } from '../history';
 import { rangeLimits } from '../limits';
 
@@ -22,6 +22,12 @@ function boundaryOf(ctx: AppContext, table: string, g: Grid, where = '', ...args
   const coarse = q(60);
   const fine = q(10);
   return coarse !== null && fine !== null && fine > coarse ? fine : null;
+}
+
+/** Absent means host 1; anything other than a positive integer is refused. */
+function parseHostId(v: string | undefined): number | null {
+  if (v === undefined || v === '') return LOCAL_HOST_ID;
+  return /^[1-9]\d{0,8}$/.test(v) ? Number(v) : null;
 }
 
 const rangeOf = (g: Grid, boundary: number | null): HistoryRange => ({ from: g.from, to: g.to, stepS: g.stepMs / 1000, boundary });
@@ -45,14 +51,17 @@ export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/history/host', user, async (req, reply): Promise<HistoryResponse | void> => {
     const r = range(req);
     if (!r) return bad(reply);
+    // `host` selects an agent host (phase 11); without it, this server as before.
+    const hostId = parseHostId((req.query as { host?: string }).host);
+    if (hostId === null || !ctx.hosts.get(hostId)) return reply.code(404).send({ error: 'not_found', message: 'No such host.' });
     const g = makeGrid(r.from, r.to, MAX_POINTS);
     const host = rows<{ ts: number; cpu: number | null; core: number | null; mem: number | null; rx: number | null; tx: number | null }>(
       ctx,
       `SELECT ts, cpu_pct AS cpu, cpu_max_core_pct AS core,
               CASE WHEN mem_total_bytes > 0 THEN mem_used_bytes * 100.0 / mem_total_bytes END AS mem,
               net_rx_bps AS rx, net_tx_bps AS tx
-       FROM metrics_host WHERE ts >= ? AND ts < ? ORDER BY ts`,
-      g.from, g.to,
+       FROM metrics_host WHERE host_id = ? AND ts >= ? AND ts < ? ORDER BY ts`,
+      hostId, g.from, g.to,
     );
     const s: HistoryResponse['series'] = fill(g, host, (x) => x.ts, {
       cpuPct: col((x) => x.cpu, 'avg'), cpuMaxCorePct: col((x) => x.core, 'max'), memPct: col((x) => x.mem, 'avg'),
@@ -61,13 +70,13 @@ export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
     const disks = rows<{ ts: number; volume: string; pct: number | null }>(
       ctx,
       `SELECT ts, volume, CASE WHEN total_bytes > 0 THEN used_bytes * 100.0 / total_bytes END AS pct
-       FROM metrics_disk WHERE ts >= ? AND ts < ? ORDER BY ts`,
-      g.from, g.to,
+       FROM metrics_disk WHERE host_id = ? AND ts >= ? AND ts < ? ORDER BY ts`,
+      hostId, g.from, g.to,
     );
     for (const v of [...new Set(disks.map((d) => d.volume))].sort()) {
       s[`disk ${v}`] = fill(g, disks.filter((d) => d.volume === v), (x) => x.ts, { v: col((x) => x.pct, 'max') }).v!;
     }
-    return { range: rangeOf(g, boundaryOf(ctx, 'metrics_host', g)), ts: gridTimes(g), series: s };
+    return { range: rangeOf(g, boundaryOf(ctx, 'metrics_host', g, 'AND host_id = ?', hostId)), ts: gridTimes(g), series: s };
   });
 
   app.get('/history/services/:id', user, async (req, reply): Promise<HistoryResponse | void> => {
@@ -126,11 +135,11 @@ export function historyRoutes(app: FastifyInstance, ctx: AppContext): void {
       ctx,
       `SELECT ts, up, ping_ms AS ping, conn_current AS conn, mem_resident_mb AS mem, repl_lag_s AS lag,
               COALESCE(op_insert_ps,0) + COALESCE(op_query_ps,0) + COALESCE(op_update_ps,0) + COALESCE(op_delete_ps,0) + COALESCE(op_getmore_ps,0) + COALESCE(op_command_ps,0) AS ops
-       FROM metrics_mongo WHERE ts >= ? AND ts < ? ORDER BY ts`, g.from, g.to);
+       FROM metrics_mongo WHERE host_id = ? AND ts >= ? AND ts < ? ORDER BY ts`, LOCAL_HOST_ID, g.from, g.to);
     const series = fill(g, m, (x) => x.ts, {
       up: col((x) => x.up, 'min'), pingMs: col((x) => x.ping, 'max'), connCurrent: col((x) => x.conn, 'avg'),
       memResidentMb: col((x) => x.mem, 'avg'), replLagS: col((x) => x.lag, 'max'), opsPerS: col((x) => x.ops, 'avg'),
     });
-    return { range: rangeOf(g, boundaryOf(ctx, 'metrics_mongo', g)), ts: gridTimes(g), series };
+    return { range: rangeOf(g, boundaryOf(ctx, 'metrics_mongo', g, 'AND host_id = ?', LOCAL_HOST_ID)), ts: gridTimes(g), series };
   });
 }

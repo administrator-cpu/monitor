@@ -126,7 +126,7 @@ export function pm2Collector(d: ProcessCollectorDeps): CollectorDef {
         states.push({
           serviceId: svc.id,
           name: svc.name,
-          pm2Name: svc.pm2_name,
+          pm2Name: svc.source_key,
           updatedAt: at,
           status: g.status,
           instances: g.instances,
@@ -142,7 +142,7 @@ export function pm2Collector(d: ProcessCollectorDeps): CollectorDef {
       const othersListed = procs.some((p) => !p.isModule && !isSelf(p, own));
       const archiveAfterMs = d.autoArchive && othersListed ? Math.max(0, d.autoArchive.minutes()) * 60_000 : 0;
       for (const svc of d.services.list(false)) {
-        if (seen.has(svc.pm2_name)) continue;
+        if (seen.has(svc.source_key)) continue;
         if (archiveAfterMs > 0 && at - svc.last_seen_at > archiveAfterMs) {
           d.autoArchive!.archive(svc);
           continue;
@@ -150,7 +150,7 @@ export function pm2Collector(d: ProcessCollectorDeps): CollectorDef {
         states.push({
           serviceId: svc.id,
           name: svc.name,
-          pm2Name: svc.pm2_name,
+          pm2Name: svc.source_key,
           updatedAt: at,
           status: 'stopped',
           instances: 0,
@@ -159,7 +159,7 @@ export function pm2Collector(d: ProcessCollectorDeps): CollectorDef {
           memBytes: 0,
           restarts: 0,
           uptimeS: 0,
-          ...exitFor(d.events, svc.pm2_name),
+          ...exitFor(d.events, svc.source_key),
         });
       }
       d.state.setProcesses(states, at);
