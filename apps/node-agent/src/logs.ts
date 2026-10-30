@@ -240,6 +240,8 @@ export class LogShipper {
   private queuedChars = 0;
   private rate = new Map<string, { second: number; n: number }>();
   private excluded = new Set<string>();
+  /** The containers of the last list, to find a service's containers by key. */
+  private listed: readonly LogContainer[] = [];
   private linesPerS = DEFAULT_LINES_PER_S;
   private spool: Spooled[] = [];
   private spoolBytes = 0;
@@ -332,6 +334,10 @@ export class LogShipper {
   sync(list: readonly LogContainer[]): void {
     if (!this.running) return;
     const nowSec = Math.floor(this.now() / 1000);
+    this.listed = list;
+    // An excluded container's position follows the clock, so nothing it writes while excluded is
+    // sent later.
+    for (const c of list) if (this.excluded.has(c.key)) this.skipToNow(c.id);
     const want = new Map(list.filter((c) => c.running && !this.excluded.has(c.key)).map((c) => [c.id, c.key]));
     for (const [id, f] of this.followers) {
       if (!want.has(id)) {
@@ -385,6 +391,13 @@ export class LogShipper {
       }
     }
     if (this.followers.get(id)?.abort === abort) this.followers.delete(id);
+  }
+
+  /** Moves a container's position to the current millisecond. */
+  private skipToNow(id: string): void {
+    const t = this.now();
+    this.cursors.set(id, cursorText(Math.floor(t / 1000), (t % 1000) * 1_000_000));
+    this.cursorsDirty = true;
   }
 
   /** One line of a container: position, Caddy filter, limit, queue. */
@@ -567,7 +580,11 @@ export class LogShipper {
     if (Array.isArray(a.excluded)) {
       const next = new Set(a.excluded.filter((x): x is string => typeof x === 'string').slice(0, 1000));
       const added = [...next].filter((k) => !this.excluded.has(k));
+      const resumed = [...this.excluded].filter((k) => !next.has(k));
       this.excluded = next;
+      // Shipping goes on from now, not from where the container was left: lines written while it
+      // was excluded are never sent.
+      for (const c of this.listed) if (next.has(c.key) || resumed.includes(c.key)) this.skipToNow(c.id);
       for (const [id, f] of this.followers) {
         if (next.has(f.key)) {
           f.abort.abort();
@@ -576,6 +593,8 @@ export class LogShipper {
       }
       for (const k of added) this.queue.delete(k);
       if (added.length > 0) this.d.log.info('the monitor excluded services from log shipping', { services: added });
+      if (resumed.length > 0) this.d.log.info('the monitor resumed log shipping, from now on', { services: resumed });
+      this.scheduleSave();
     }
     this.lastError = null;
   }
