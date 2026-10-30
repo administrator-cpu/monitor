@@ -57,8 +57,8 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V17 | The UI checked once on a real phone | 2 | Open |
 | V18 | The deploy run for `e31724b` succeeded (GitHub Actions log) and `.deploy-sha` matches `main` | 10 | Open |
 | V19 | After H7: a restore from the nightly backup works | 10.5 | Open. Blocked: on 2026-10-30 `E:\monitor-backups` had no nightly file, only deploy copies; diagnose with `docs/runbook-backups.md` section 5 |
-| V20 | Ubuntu: name of the `acs` compose network and of the Mongo service; full container list | 11 (M2) | Open |
-| V21 | Ubuntu: a non-root container with `pid: host` can read `/proc/1/net/dev` | 11 (M2) | Open |
+| V20 | Ubuntu: name of the `acs` compose network and of the Mongo service; full container list | 11 (M2) | **Done 2026-10-30.** Host `acs-prod`, `154.49.142.251` (SSH on 35610). Compose project `acs` (`/opt/acs/repo/infra/docker-compose.yml`), network `acs_default`, Mongo service `mongo` (`acs-mongo-1`, `mongo:8.0`). Nine containers, all project `acs`: `api`, `dashboard`, `caddy` (`caddy:2-alpine`), `mongo`, `genieacs-nbi`, `genieacs-cwmp`, `genieacs-fs`, `genieacs-ui`, `cpe-sim`. Four run images that show only as IDs (`genieacs-cwmp`/`-fs`/`-ui` and `cpe-sim`), so discovery keys on the compose labels, never the image name. User `deploy` is in the `docker` group |
+| V21 | Ubuntu: a non-root container with `pid: host` can read `/proc/1/net/dev` | 11 (M2) | **Done 2026-10-30.** As uid 65534 it lists the host's interfaces (`lo`, `ens3`, `docker0`, `br-d2b6a9c42f5f`, 11 `veth*`), matching `ip -br link`. The fallback container is not needed; after the TRD 14.5 exclusions only `ens3` is counted |
 | V22 | Ubuntu: `/var/log/auth.log` and `/var/log/fail2ban.log` exist and are group `adm` | 11 (M4) | Open |
 | V23 | Ubuntu: Caddy writes JSON access logs to a file in a named volume and not to stdout (O6) | 11 (M4) | Open |
 | V24 | Ubuntu: backup folder path and the `.offsite-ok` marker after an upload (O5) | 11 (M4) | Open |
@@ -80,6 +80,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | F4 merged (PR #8); its deploy was the first through the service (1 min, no forced stop). PM2 entry deleted. H9 and V2 done; V8 partly |
 | v3 | 2026-10-30 | P1: Overview summary (monitor card, alerts, backups and certificates, GitHub and email), patch 0015 |
 | v3 | 2026-10-30 | P1 merged (PR #10). Phase 11 M1 code done as patch 0016; V25 and V26 added. The new settings use the prefix `hosts.` (not `agent.`, which stays hidden for the unread `agent.max_tenants_per_report`) |
+| v3 | 2026-10-30 | V20 and V21 done: network `acs_default`, Mongo service `mongo`, nine `acs` containers; `pid: host` works for a non-root container (patch 0018) |
 | v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
 
 ---
@@ -306,7 +307,7 @@ Not in M1, as planned: container discovery and services from the container list 
 - [ ] Compose file and runbook "Adding a host" (enroll, env file, `docker compose up -d`, check).
 - [ ] Minimal host switcher so Host and Services pages work for host 2.
 - [ ] `pnpm demo` with two hosts (fake Docker API and fixture `/proc`).
-- [ ] On the server: V20, V21.
+- [x] On the server: V20, V21 (2026-10-30).
 
 Acceptance: the Ubuntu host appears within a minute of `docker compose up -d` with CPU, memory, swap, disks and every `acs` container; stopping `cpe-sim` on the server opens "service down" and starting it resolves; stopping the agent raises `host.silent` and hides that host's other alerts (the rule and its suppression exist since M1).
 

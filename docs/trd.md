@@ -490,7 +490,7 @@ services:
     restart: unless-stopped
 networks:
   cc-internal: { internal: true }
-  acs: { external: true, name: acs_default }
+  acs: { external: true, name: acs_default }       # checked (V20)
 volumes:
   cc-agent-state: {}
   acs_caddy_logs: { external: true }
@@ -554,7 +554,7 @@ Tests in CI start the proxy against a fake Docker socket and assert 403 on every
 | Area | Method | Interval |
 |---|---|---|
 | CPU, memory, swap, uptime, disk I/O | `/proc/stat`, `/proc/meminfo`, `/proc/uptime`, `/proc/diskstats` (host-wide inside any container) | 2 s sample, 10 s push |
-| Network | `/proc/1/net/dev` with `pid: host` (host network namespace), excluding `lo`, `docker0`, `br-*`, `veth*`. [Verify at M2 that a non-root agent can read it; fallback: a tiny second container with `network_mode: host` that only reads `/proc/net/dev`] | 2 s |
+| Network | `/proc/1/net/dev` with `pid: host` (host network namespace), excluding `lo`, `docker0`, `br-*`, `veth*`. Checked (V21, 2026-10-30): readable by a non-root container; on `acs-prod` that leaves `ens3` | 2 s |
 | Disk usage | `statfs` on `/host<mount>` for each mount in `CC_DISKS` | 10 s |
 | Pending reboot | Exists `/host-run/reboot-required` | 60 s |
 | Containers | Proxy list and stats, for projects in `CC_PROJECTS` and the agent's own project | 10 s |
