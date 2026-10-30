@@ -47,11 +47,11 @@ node apps\backend\dist\create-admin.js --username owner --email you@example.com 
 ## 3. Install as a Windows service
 
 ```powershell
-.\scripts\install-service.ps1 -AppDir C:\monitor\app\apps\backend -EnvFile C:\monitor\config\backend.env -ServiceAccount '.\svc-monitor'
+.\scripts\install-service.ps1   # defaults: service monitor-api, C:\Apps\command-center-deploy\apps\backend, .\Administrator
 curl http://127.0.0.1:4000/health        # {"status":"ok"}
 ```
 
-The service runs outside PM2 on purpose. To remove it: `.\scripts\uninstall-service.ps1`.
+The service runs outside PM2 on purpose. Production was first set up under PM2; the switch to the service is `docs/runbook-service.md` (H9). To remove it: `.\scripts\uninstall-service.ps1`.
 
 ## 4. Run the frontend
 
@@ -117,7 +117,7 @@ server {
 | Wrong password five times locks the account, each failure audited | automated: `auth.test.ts` "locks the account after 5 failures" | tests |
 | Non-allowlisted Origin rejected on REST and WebSocket | automated: `auth.test.ts` (origin and CSRF), `ws.test.ts` (4403) | tests |
 | WebSocket without a session cookie closed with 4401 | automated: `ws.test.ts`; also run against a real process | tests |
-| Killing and restarting the service keeps sessions valid | automated: new app on the same database file accepts the old cookie. **Repeat on the VPS with NSSM**: sign in, `nssm restart CommandCenterBackend`, reload | tests + **on-host** |
+| Killing and restarting the service keeps sessions valid | automated: new app on the same database file accepts the old cookie. **Repeat on the VPS** (V2): sign in, `Restart-Service monitor-api`, reload | tests + **on-host** |
 | Backend memory and CPU within the TRD budget over a one-hour idle run | **not yet measured**. Watch the Host page "Monitor health" panel for an hour: RSS < 500 MB, process CPU < 10 %, event loop lag p95 < 50 ms | **on-host** |
 | Native modules install; `systeminformation` returns all host fields | **on-host**: section 1, then check Overview shows CPU, RAM, swap, network, uptime, `C:` and `E:` | **on-host** |
 

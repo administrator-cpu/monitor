@@ -319,6 +319,14 @@ describe('ServicesRepo and the pm2 collector', () => {
       expect(state.getProcessStates().find((s) => s.pm2Name === 'chatty')).toMatchObject({ status: 'stopped', instances: 0 });
     });
 
+    it('archives the old monitor-api entry once the monitor runs as a service and PM2 stops listing it (H9)', async () => {
+      const { c, clock, archived, services } = build(15, [proc({ name: 'api', pmId: 1 })], null);
+      services.discover('monitor-api');
+      clock.t += 16 * 60_000;
+      await c.run();
+      expect(archived.sort()).toEqual(['chatty', 'monitor-api']);
+    });
+
     it('does nothing when PM2 lists no service at all (a PM2 outage must not clear the dashboard)', async () => {
       const { c, clock, archived } = build(15, []);
       clock.t += 24 * 3_600_000;

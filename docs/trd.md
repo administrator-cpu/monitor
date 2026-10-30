@@ -85,10 +85,10 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 | Passwords | `bcrypt` cost 12, fallback `bcryptjs` | Built |
 | Own logs | `pino`, into the log pipeline as `_monitor` | Built |
 | Frontend | Next.js 16 (16.4.3 or later, F3), React 19, uPlot | Built |
-| Backend process manager | PM2, process `monitor-api` | Built (see below) |
+| Backend process manager | Windows service `monitor-api` (NSSM), outside PM2 (H9) | Code built; switch on the server pending (see below) |
 | Packages | pnpm 10 workspace | Built |
 
-**Process manager.** v1 chose NSSM so a PM2 failure stays visible. Production runs the backend inside PM2. Consequences: if the PM2 daemon dies, the monitor dies with it and only the watchdog reports it; `pm2 kill` or `pm2 delete all` removes the monitor too. **Decision O1 (recommended: yes, before M1):** run `monitor-api` as a Windows service with `scripts/install-service.ps1`, under the account that owns PM2 so it can still reach the PM2 daemon, and change `deploy.ps1` from `pm2 restart` to `Restart-Service`. With every remote host depending on the monitor, its own availability matters more.
+**Process manager.** v1 chose NSSM so a PM2 failure stays visible; production was first set up inside PM2, where the monitor died with the PM2 daemon (and with `pm2 kill` or `pm2 delete all`) and only the watchdog noticed. **Decision O1 (yes, 2026-10-30), H9:** the backend runs as the Windows service `monitor-api`, installed by `scripts/install-service.ps1` with NSSM under the account that owns PM2 and with `PM2_HOME` set, so it still reads the same PM2 daemon. The PM2 client only probes the daemon's socket and never starts a daemon of its own. NSSM restarts the app 5 s after an exit and stops it with Ctrl+C (handled as SIGINT, 10 s); Windows restarts NSSM itself on failure. Early-start output goes to `E:\monitor-service-logs\service.log`. `deploy.ps1` restarts the service when it exists and the PM2 process otherwise, and refuses when both exist. The switch on the server is `docs/runbook-service.md`.
 
 ---
 
@@ -102,12 +102,12 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 ┌──────────────────── Windows VPS (host 1) ───────┼──────────────────┐
 │ Nginx 443 monitor-api.thediv.in ─► Backend 127.0.0.1:4111           │
 │   /api/v1, /api/v1/ws, /health, /webhooks/resend, /agent/v1 (M1)    │
-│ Backend (PM2 "monitor-api")                                          │
+│ Backend (Windows service "monitor-api", H9)                          │
 │   collectors: host, disk, system, disk I/O, Event Log, PM2, Nginx,   │
 │               Mongo, TLS, GitHub, probes (M4)                        │
 │   state store · log pipeline → E:\monitor-logs · alert engine →     │
 │   Resend · SQLite (C:) · ingest 127.0.0.1:4001 · agent ingest (M1)   │
-│ PM2: monitor-api + 9–10 services · MongoDB · GitHub runner           │
+│ PM2: 9–10 services · MongoDB · GitHub runner                         │
 └───────────────────────────────────▲──────────────────────────────────┘
                                     │ HTTPS, per-host token, outbound only
 ┌──────────────────── Ubuntu VPS (host 2, "ubuntu-acs") ───────────────┐
@@ -287,7 +287,7 @@ Pages: login, change password, Overview, Host, Services, service detail (live, h
 
 | Failure | Behavior | Status |
 |---|---|---|
-| Backend crash | PM2 restarts it; watchdog emails if it stays down | Built |
+| Backend crash | NSSM restarts it after 5 s (PM2 did, before H9); watchdog emails if it stays down | Built |
 | PM2 daemon dies | Monitor dies too; watchdog emails in 5 to 15 min (O1 removes this) | Built |
 | Bad deploy | Backup, build, restart, health and stability checks, code rollback. Migrations are not rolled back; the backup path is printed | Built |
 | A collector fails | Its data turns stale; its rules pause; `monitor.collector_stale` | Built |
@@ -314,7 +314,7 @@ Pages: login, change password, Overview, Host, Services, service detail (live, h
 
 ## 8. Monitoring the Monitor [Built]
 
-The Host page shows the monitor's CPU, memory, event loop lag, queue depths, dropped lines, SQLite size and per-collector last success. Its logs go to `E:\monitor-logs\_monitor\`. `.deploy-sha` in the deploy folder is shown as `monitor-api`'s commit. [Planned] The Hosts page shows each agent's version, last contact, clock skew, buffer size, dropped lines and per-collector status.
+The Host page shows the monitor's CPU, memory, event loop lag, queue depths, dropped lines, SQLite size and per-collector last success. Its logs go to `E:\monitor-logs\_monitor\`. The "Monitor health" card also shows how the backend was started (Windows service, PM2 or by hand, from `CC_SERVICE_NAME` and `pm_id`) and the deployed commit from `.deploy-sha` in the deploy folder, read again every 30 s (H9; before, the commit showed on `monitor-api`'s GitHub card, which goes away with its PM2 entry). [Planned] The Hosts page shows each agent's version, last contact, clock skew, buffer size, dropped lines and per-collector status.
 
 ---
 
@@ -344,9 +344,10 @@ The Host page shows the monitor's CPU, memory, event loop lag, queue depths, dro
 | `NGINX_STATUS_URL`, `NGINX_ACCESS_LOG`, `NGINX_ERROR_LOG`, `TLS_CHECK_HOSTS` | optional | |
 | `MONGO_URI`, `MONGO_PROFILE_DBS` | optional | |
 | `INGEST_TOKEN` | optional, 24+ characters | |
-| `CC_ENV_FILE` | | Path to the env file for CLI tools |
+| `CC_ENV_FILE` | | Path to the env file (CLI tools; the Windows service sets it) |
+| `CC_SERVICE_NAME` | | Set by `install-service.ps1`; shown as "Runs as" on the Host page |
 
-The production env file is `C:\Apps\command-center-deploy\apps\backend\.env`; the deploy never overwrites it; after editing, `pm2 restart monitor-api --update-env`. **[Gap H1]** `apps/backend/.env.example` was deleted in `e31724b`; restore it with every variable above (including `PORT_API=4111`) and the phase 11 additions.
+The production env file is `C:\Apps\command-center-deploy\apps\backend\.env`; the deploy never overwrites it; after editing, `Restart-Service monitor-api` (under PM2: `pm2 restart monitor-api --update-env`). **[Gap H1]** `apps/backend/.env.example` was deleted in `e31724b`; restore it with every variable above (including `PORT_API=4111`) and the phase 11 additions.
 
 ### 9.2 Backend environment added in phase 11 [Planned]
 
@@ -385,12 +386,12 @@ Secrets (`CC_ENROLL_TOKEN`, `CC_MONGO_URI`, `CC_RELAY_TOKEN`) live in an env fil
 
 | Part | Where | How |
 |---|---|---|
-| Backend | Windows VPS, PM2 `monitor-api` | Push to `main` touching backend paths → CI on GitHub's Linux runner → `scripts/deploy.ps1` on the self-hosted runner |
+| Backend | Windows VPS, Windows service `monitor-api` (H9; PM2 until the switch) | Push to `main` touching backend paths → CI on GitHub's Linux runner → `scripts/deploy.ps1` on the self-hosted runner |
 | Frontend | Vercel | Git integration |
 | Watchdog | Render | `apps/watchdog/render.yaml` |
 | Agent images | GHCR | [Planned] CI job on `main` builds `cc-node-agent` and `cc-docker-proxy`, tagged by commit and `latest` |
 
-`deploy.ps1`: preflight (tools, `.env`, PM2 process runs from the deploy folder) → `VACUUM INTO` backup to `E:\monitor-backups\deploy` (last 10 kept) → snapshot to `C:\Apps\command-center-deploy.prev` → robocopy → `pnpm install --frozen-lockfile` → build → `pm2 restart` → `/health` on port 4111 and a 10 s stability check → `.deploy-sha`. On failure: code rollback; database migrations are not undone.
+`deploy.ps1`: preflight (tools, `.env`, the service's NSSM folder or the PM2 process's folder is the deploy folder) → `VACUUM INTO` backup to `E:\monitor-backups\deploy` (last 10 kept) → snapshot to `C:\Apps\command-center-deploy.prev` → robocopy → `pnpm install --frozen-lockfile` → build → `Restart-Service monitor-api` (or `pm2 restart` before the switch) → `/health` on port 4111 and a 10 s stability check (the PID of NSSM's `node.exe`, or PM2's restart count, must not change) → `.deploy-sha`. On failure: code rollback; database migrations are not undone.
 
 **H7 (code done).** The backend's `backup` job (`src/backup.ts`, every 10 min) writes `BACKUP_DIR\monitor-YYYYMMDD.db` once a day after 02:30 server time: `VACUUM INTO` a `.partial` file, `PRAGMA quick_check` on the copy, rename, keep the newest `backup.keep` (14). A failure throws, is retried on the next run and after three makes the job stale (`monitor.collector_stale`, target `backup`); before 02:30 a missing file for yesterday is also a failure. `VACUUM INTO` is synchronous and holds the database for the copy (seconds at the projected size). Offsite: `scripts/backup-offsite.ps1` copies the newest file to an rclone (crypt) remote and prunes remote copies older than 30 days, run by a scheduled task the monitor does not watch. Restore test on a copy: `scripts/check-backup.ps1`. Runbook: `runbook-backups.md`. [Verify] offsite task and V19.
 

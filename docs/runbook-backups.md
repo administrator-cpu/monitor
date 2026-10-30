@@ -17,7 +17,7 @@ The nightly copy is made with `VACUUM INTO` to `monitor-YYYYMMDD.db.partial`, ch
 ## 2. One-time setup on the Windows VPS
 
 1. **Folder.** The backend creates `E:\monitor-backups` itself. The account that runs `monitor-api` (V8) needs write access to it. Check after the first night (step 5).
-2. **Setting.** Nothing to set: `BACKUP_DIR` defaults to `E:\monitor-backups` on Windows. To use another folder, set `BACKUP_DIR` in `C:\Apps\command-center-deploy\apps\backend\.env` and run `pm2 restart monitor-api --update-env`. Keep it off `C:`, where the database is. `BACKUP_DIR=off` switches the job off; the startup log then warns.
+2. **Setting.** Nothing to set: `BACKUP_DIR` defaults to `E:\monitor-backups` on Windows. To use another folder, set `BACKUP_DIR` in `C:\Apps\command-center-deploy\apps\backend\.env` and run `Restart-Service monitor-api` (before H9's switch: `pm2 restart monitor-api --update-env`). Keep it off `C:`, where the database is. `BACKUP_DIR=off` switches the job off; the startup log then warns.
 3. **Old deploy backups.** Earlier deploys wrote to `C:\monitor\backups`. Nothing reads them now. Keep them until the first deploy has written to `E:\monitor-backups\deploy`, then delete the folder by hand.
 4. **Offsite copy.**
    1. Install rclone (`winget install Rclone.Rclone`, or the zip from rclone.org into `C:\Tools\rclone`).
@@ -56,14 +56,14 @@ It copies the file to a temporary folder, runs `PRAGMA integrity_check` and prin
 Only when the live database is lost or damaged. Everything after the backup's time is lost (users created since, audit entries, settings changed since).
 
 ```powershell
-pm2 stop monitor-api
+Stop-Service monitor-api                    # before H9's switch: pm2 stop monitor-api
 $db = 'C:\monitor\data\monitor.db'
 $aside = "C:\monitor\data\broken-$(Get-Date -Format yyyyMMdd-HHmmss)"
 New-Item -ItemType Directory $aside | Out-Null
 Move-Item "$db*" $aside                     # monitor.db, monitor.db-wal, monitor.db-shm
 .\scripts\check-backup.ps1 -Backup E:\monitor-backups\monitor-YYYYMMDD.db
 Copy-Item E:\monitor-backups\monitor-YYYYMMDD.db $db
-pm2 start monitor-api
+Start-Service monitor-api                   # before H9's switch: pm2 start monitor-api
 ```
 
 The `-wal` and `-shm` files belong to the old database and must not stay next to the restored one; moving all `monitor.db*` files aside handles that. If the backup is older than the last migration, the backend applies the missing migrations on start. If a migration caused the damage, restore the backup written by the deploy before it (`E:\monitor-backups\deploy`) and roll back the code.

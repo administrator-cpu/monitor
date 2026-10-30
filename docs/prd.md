@@ -156,7 +156,7 @@ Public routes outside `/api/v1`:
 
 ### 3.3 Stack
 
-Node.js 22, TypeScript, Fastify, Zod, SQLite (`better-sqlite3`, WAL), `systeminformation` and PowerShell on Windows, PM2 programmatic API in a worker thread, official `mongodb` driver, Resend with `svix` verification, Next.js 16 and React 19 with uPlot. The backend runs under PM2 as `monitor-api` (section 12, decision O1, asks whether to move it to a Windows service).
+Node.js 22, TypeScript, Fastify, Zod, SQLite (`better-sqlite3`, WAL), `systeminformation` and PowerShell on Windows, PM2 programmatic API in a worker thread, official `mongodb` driver, Resend with `svix` verification, Next.js 16 and React 19 with uPlot. The backend runs as the Windows service `monitor-api` outside PM2 (decision O1, H9), so a PM2 failure does not take the monitor down.
 
 ---
 
@@ -342,7 +342,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 
 | # | Item | Recommendation |
 |---|---|---|
-| O1 | Run `monitor-api` as a Windows service instead of inside PM2, so a PM2 failure no longer takes the monitor down | Yes, before M1. The NSSM script exists; the deploy script needs a change |
+| O1 | Run `monitor-api` as a Windows service instead of inside PM2, so a PM2 failure no longer takes the monitor down | Yes (2026-10-30). Code done in H9; the switch on the server is `docs/runbook-service.md` |
 | O2 | The account the backend runs as | Confirm it is the Administrator account (deploy script default); keep, since PM2 runs there, and record it |
 | O3 | TOTP per action or Cloudflare Access before remote actions | Yes, one of them before M5 is switched on |
 | O4 | Health path on `tr069-api.thediv.in` | Owner to supply |

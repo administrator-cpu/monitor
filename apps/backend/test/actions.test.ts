@@ -109,6 +109,22 @@ describe('service actions', () => {
     expect(pm2.calls).toHaveLength(0);
   });
 
+  it('outside PM2 (H9: no PM2 id of its own) it still refuses the name and acts on everything else', async () => {
+    const s = await setup({ ownPmId: () => null });
+    // A leftover PM2 entry named monitor-api (before `pm2 delete`) is still refused by name.
+    expect((await act(s.admin, s.self, 'restart')).statusCode).toBe(409);
+    // pm_id 0 now belongs to an ordinary service: no id is the monitor's, so it can be restarted.
+    pm2.procs.push(proc({ name: 'shop2', pmId: 0 }));
+    pm2.procs = pm2.procs.filter((p) => p.name !== 'monitor-api');
+    const s2 = t.ctx.services.discover('shop2');
+    expect((await act(s.admin, s2.id, 'restart')).statusCode).toBe(200);
+    expect((await act(s.admin, s.shop, 'restart')).statusCode).toBe(200);
+    expect(pm2.calls).toEqual([
+      { action: 'restart', pmId: 0 },
+      { action: 'restart', pmId: 3 },
+    ]);
+  });
+
   it('restart works from any state and confirms the new state', async () => {
     const s = await setup();
     pm2.procs[0]!.status = 'errored';

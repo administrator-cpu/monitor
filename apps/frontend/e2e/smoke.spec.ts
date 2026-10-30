@@ -70,6 +70,9 @@ test('reloading the host page shows charts already populated', async ({ page }) 
   await expect(page.getByRole('region', { name: 'Monitor health' })).toContainText(
     'Event loop lag',
   );
+  // The test backend is started by hand (no PM2, no Windows service) and has no .deploy-sha.
+  await expect(page.getByTestId('monitor-runs-as')).toHaveText('Started by hand');
+  await expect(page.getByTestId('monitor-deployed-sha')).toHaveText('—');
 });
 
 test('the admin can create an engineer, who cannot see admin pages', async ({ page, browser }) => {

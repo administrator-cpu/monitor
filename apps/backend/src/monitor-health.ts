@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 import type { MonitorHealth } from '@cc/shared';
+import { DeployShaReader, runsAs } from './self-info';
 
 /** The monitor watching itself (TRD section 8). */
 export class MonitorHealthReporter {
@@ -12,9 +13,12 @@ export class MonitorHealthReporter {
   private lastCpuAt = Date.now();
   private cpuPct = 0;
 
+  private readonly runsAs = runsAs();
+
   constructor(
     private readonly sqlitePath: string,
     private readonly wsClients: () => number,
+    private readonly deploySha: DeployShaReader = new DeployShaReader(),
   ) {}
 
   start(): void {
@@ -55,6 +59,8 @@ export class MonitorHealthReporter {
     }
     return {
       pid: process.pid,
+      runsAs: this.runsAs,
+      deployedSha: this.deploySha.get(),
       uptimeS: Math.floor(process.uptime()),
       cpuPct: round1(this.cpuPct),
       rssBytes: mem.rss,

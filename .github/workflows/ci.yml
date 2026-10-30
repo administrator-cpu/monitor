@@ -40,3 +40,25 @@ jobs:
 
       - name: Tests
         run: pnpm test
+
+      # The server runs these with Windows PowerShell 5.1. This parses them with the runner's
+      # PowerShell 7 and also refuses the operators 5.1 does not know (?? ?. ?: && ||), so a typo
+      # is caught here and not halfway through a deploy. It does not run them.
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $bad = 0
+          $only7 = 'QuestionQuestion', 'QuestionQuestionEquals', 'QuestionDot', 'QuestionLBracket', 'QuestionMark', 'AndAnd', 'OrOr'
+          foreach ($f in Get-ChildItem scripts -Filter *.ps1) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+            foreach ($e in $errors) { Write-Host "::error file=scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
+            foreach ($t in $tokens) {
+              if ($only7 -contains [string]$t.Kind) {
+                Write-Host "::error file=scripts/$($f.Name),line=$($t.Extent.StartLineNumber)::'$($t.Text)' needs PowerShell 7; the server runs 5.1"
+                $bad++
+              }
+            }
+            Write-Host "$($f.Name): $($errors.Count) parse errors"
+          }
+          if ($bad -gt 0) { exit 1 }

@@ -1,5 +1,6 @@
 'use client';
 
+import type { MonitorRunsAs } from '@cc/shared';
 import { HistoryPanel, IncidentTimeline, WindowsEvents } from '@/components/History';
 import { PageHead, Shell } from '@/components/Shell';
 import { UPlotChart } from '@/components/UPlotChart';
@@ -8,6 +9,14 @@ import { useIsFresh, useLive } from '@/lib/live';
 import { useHostSeries } from '@/lib/useHostSeries';
 
 const PCT = (v: number) => `${Math.round(v)}%`;
+
+/** H9: production runs as a Windows service; PM2 or a hand start means the switch is not done. */
+function runsAsLabel(r: MonitorRunsAs | undefined): string {
+  if (!r) return '—';
+  if (r.kind === 'service') return r.name ? `Windows service ${r.name}` : 'Windows service';
+  if (r.kind === 'pm2') return r.name ? `PM2 process ${r.name}` : 'PM2';
+  return 'Started by hand';
+}
 
 function ChartCard({
   title,
@@ -153,6 +162,12 @@ function Host() {
               <dd>{m.sqliteBytes == null ? '—' : bytes(m.sqliteBytes)}</dd>
               <dt>Monitor uptime</dt>
               <dd>{duration(m.uptimeS)}</dd>
+              <dt>Runs as</dt>
+              <dd data-testid="monitor-runs-as">{runsAsLabel(m.runsAs)}</dd>
+              <dt>Deployed commit</dt>
+              <dd data-testid="monitor-deployed-sha">
+                {m.deployedSha ? <code title={m.deployedSha}>{m.deployedSha.slice(0, 7)}</code> : '—'}
+              </dd>
             </dl>
           ) : (
             <div className="empty">Loading…</div>
