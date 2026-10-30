@@ -17,6 +17,7 @@ import { ContainerTracker } from './hosts/containers';
 import { HostsRepo } from './hosts/repo';
 import { LiveHub } from './hub';
 import { LogSystem, type LogSystemOptions } from './logs';
+import { RemoteLogs } from './logs/remote';
 import { LogSearcher, type SearcherOptions } from './logs/searcher';
 import type { PipelineSink } from './logs/sink';
 import type { Logger } from './logger';
@@ -47,6 +48,8 @@ export interface AppContext {
   hub: LiveHub;
   health: MonitorHealthReporter;
   logs: LogSystem;
+  /** Container logs shipped by agent hosts (phase 11, M3). */
+  remoteLogs: RemoteLogs;
   searcher: LogSearcher;
   services: ServicesRepo;
   /** Host 1 (this server) and the agent hosts (phase 11). */
@@ -216,6 +219,13 @@ export function createContext(opts: {
     state,
     scheduler,
     logs,
+    remoteLogs: new RemoteLogs({
+      services,
+      hosts,
+      pipeline: logs.pipeline,
+      linesPerS: () => settings.get('hosts.log_lines_per_s'),
+      now,
+    }),
     searcher: new LogSearcher({ ...ov.searchOptions }),
     services,
     hosts,

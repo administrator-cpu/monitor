@@ -82,6 +82,36 @@ export class LogPipeline {
   }
 
   /**
+   * Lines of a service on another host, already split by its agent. `key` is the service's log key
+   * (`@<host id>/<project>/<service>`), `dir` its folder (`@<host name>/<project>.<service>`). Each
+   * line is filed under the hour of its own time, so lines the agent buffered during an outage land
+   * where a search for that time looks.
+   */
+  ingestLines(key: string, dir: string, lines: readonly { ts: number; s: LogStream; msg: string }[]): number {
+    if (lines.length === 0) return 0;
+    let ring = this.rings.get(key);
+    if (!ring) {
+      if (this.rings.size >= MAX_STREAMS) {
+        this.rejected += lines.length;
+        return 0;
+      }
+      ring = new LogRing(this.o.ringLines, RING_MAX_CHARS);
+      this.rings.set(key, ring);
+    }
+    this.dirs.set(key, dir);
+    const received = this.now();
+    const subs = this.subs.get(key);
+    for (const l of lines) {
+      const ts = Math.abs(l.ts - received) < MAX_CLOCK_SKEW_MS ? Math.round(l.ts) : received;
+      this.o.writer.enqueue(dir, JSON.stringify({ ts, svc: key, pm: -1, s: l.s, msg: l.msg }) + '\n', ts);
+      const line = toLiveLine(ts, -1, l.s, l.msg);
+      ring.push(line);
+      if (subs) for (const sub of subs) sub.push(line);
+    }
+    return lines.length;
+  }
+
+  /**
    * Fills the live view with history read from PM2's own log files. Memory only: these lines are
    * already on disk in PM2's files, so they are not queued for the monitor's writer. Skipped when
    * the service already has live lines, so history never lands after newer output.

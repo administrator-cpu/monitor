@@ -389,15 +389,13 @@ export function agentIngestRoutes(scope: FastifyInstance, ctx: AppContext): void
     },
   );
 
-  // Logs and relayed application reports are checked and counted now; M3 and M4 store them. An
-  // agent built for those steps can therefore already talk to this monitor.
+  // Container logs (M3): stored per service; the answer tells the agent which services not to
+  // follow and its line limit, so a change on a service page reaches it within a second.
   scope.post('/logs', { config: { agentEndpoint: 'logs', ...noLimit } }, async (req, reply) => {
     const body = agentLogsSchema.parse(req.body);
     touch(req);
-    const c = ctx.hosts.countsOf(req.agentHost!.id);
-    c.logs += 1;
-    for (const b of body.batches) c.logLines += b.lines.length;
-    return reply.code(204).send();
+    ctx.hosts.countsOf(req.agentHost!.id).logs += 1;
+    return reply.code(200).send(ctx.remoteLogs.accept(req.agentHost!, body));
   });
 
   scope.post('/events', { config: { agentEndpoint: 'events', ...noLimit } }, async (req, reply) => {

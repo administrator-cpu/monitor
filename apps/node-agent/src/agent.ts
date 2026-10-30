@@ -1,8 +1,9 @@
 import type { AgentContainer, AgentEvents, AgentMetrics } from '@cc/shared';
 import { errText, type MonitorClient, type PostResult } from './client';
 import type { AgentConfig } from './config';
-import { aggregate, type DockerClient, type DockerContainer, EventTracker, LABEL_PROJECT, type TrackerSnapshot } from './docker';
+import { aggregate, type DockerClient, type DockerContainer, EventTracker, LABEL_PROJECT, LABEL_SERVICE, type TrackerSnapshot } from './docker';
 import type { Log } from './log';
+import { type CursorStore, LogShipper } from './logs';
 import { diskUsage, type HostReader } from './proc';
 
 type CollectorName = 'host' | 'disks' | 'docker' | 'events' | 'monitor';
@@ -36,6 +37,8 @@ export interface AgentDeps {
   hostname: string;
   /** Absent in tests that do not need it: the state then lives in memory only. */
   store?: TrackerStore;
+  /** Container logs (M3); absent, or without Docker, no logs are followed. */
+  logs?: { bufferDir: string; bufferMaxBytes: number; cursors?: CursorStore; linesPerS?: number | null };
   now?: () => number;
   random?: () => number;
 }
@@ -67,10 +70,27 @@ export class NodeAgent {
   /** True after a saved state was loaded, until the first container list squares it with Docker. */
   private reconcilePending = false;
   private saveTimer: NodeJS.Timeout | null = null;
+  /** Follows and ships container logs; null without Docker or without a buffer folder. */
+  readonly logs: LogShipper | null;
 
   constructor(private readonly d: AgentDeps) {
     this.now = d.now ?? Date.now;
     this.random = d.random ?? Math.random;
+    this.logs =
+      d.docker && d.logs
+        ? new LogShipper({
+            docker: d.docker,
+            post: (gz) => d.client.postGzip('logs', gz),
+            blocked: () => this.blocked(),
+            answer: (r) => this.answer('logs', r),
+            log: d.log,
+            bufferDir: d.logs.bufferDir,
+            bufferMaxBytes: d.logs.bufferMaxBytes,
+            cursors: d.logs.cursors,
+            linesPerS: d.logs.linesPerS,
+            now: this.now,
+          })
+        : null;
     this.projects = new Set(d.config.projects);
     this.ownProject = d.config.ownProject;
     this.tracker = new EventTracker((p) => this.projects.has(p) || p === this.ownProject);
@@ -82,6 +102,13 @@ export class NodeAgent {
    * missing or unreadable file is a fresh start.
    */
   async loadState(): Promise<void> {
+    if (this.logs) {
+      try {
+        await this.logs.init();
+      } catch (e) {
+        this.d.log.warn('could not prepare the log buffer', { error: errText(e) });
+      }
+    }
     if (!this.d.store) return;
     try {
       const raw = await this.d.store.load();
@@ -163,9 +190,12 @@ export class NodeAgent {
       host: { ...h, disks },
       ...(containers ? { containers } : {}),
       agent: {
-        droppedLogLines: 0,
-        bufferBytes: 0,
-        collectors: [...this.states].map(([name, s]) => ({ name, lastOkAt: s.lastOkAt, error: s.error })),
+        droppedLogLines: this.logs?.dropped ?? 0,
+        bufferBytes: this.logs?.bufferBytes ?? 0,
+        collectors: [
+          ...[...this.states].map(([name, s]) => ({ name, lastOkAt: s.lastOkAt, error: s.error })),
+          ...(this.logs ? [{ name: 'logs', ...this.logs.state() }] : []),
+        ],
       },
     };
   }
@@ -198,6 +228,12 @@ export class NodeAgent {
       const p = x.Labels?.[LABEL_PROJECT];
       return p !== undefined && (this.projects.has(p) || p === this.ownProject);
     });
+    this.logs?.sync(
+      watched.flatMap((x) => {
+        const svc = x.Labels?.[LABEL_SERVICE];
+        return svc ? [{ id: x.Id, key: `${x.Labels![LABEL_PROJECT]}/${svc}`, running: x.State === 'running' }] : [];
+      }),
+    );
     const stats = new Map<string, { cpuPct: number; memBytes: number }>();
     const running = watched.filter((x) => x.State === 'running');
     let statsError: unknown = null;
@@ -239,7 +275,7 @@ export class NodeAgent {
   }
 
   /** Turns the monitor's answer into the next wait. */
-  private answer(what: string, r: PostResult): void {
+  answer(what: string, r: PostResult): void {
     const now = this.now();
     switch (r.kind) {
       case 'ok':
@@ -352,6 +388,7 @@ export class NodeAgent {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.logs?.start();
     void this.followEvents();
     void this.tick();
     this.tickTimer = setInterval(() => void this.tick(), this.d.config.intervalMs);
@@ -364,6 +401,7 @@ export class NodeAgent {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     this.eventsAbort?.abort();
+    await this.logs?.stop();
     await this.saveState();
     // A last try for events still queued, so a restart of the agent loses none.
     if (this.queue.length > 0 && !this.blocked()) await this.flushEvents().catch(() => undefined);

@@ -35,6 +35,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 
 | Version | Date | Change |
 |---|---|---|
+| v3 | 2026-10-30 | M3 built (patch 0026): remote log folders and lines (section 4), `hosts.log_lines_per_s`, the answer to `/agent/v1/logs`, `logExcluded` and `logKey` (13.7). No migration: `services.log_excluded` came with `010` |
 | v1 | 2026-10-08 | Migrations `001` to `007` |
 | v2 | 2026-10-29 | Proposed `008` and `009` |
 | v3 | 2026-10-30 | `011_tls_certs_host.sql` (M2): `tls_certs` keyed by `(host_id, host)`, rows kept as host 1 (13.4). The planned remote checks and command queue move to `012` and `013`. Container events stored in `process_events` with `pm_id` NULL (13.7) |
@@ -180,7 +181,7 @@ Nginx access log source (no path, query, client address or headers):
 
 Search accepts a range of at most `logs.retention_hours` (H3, fixed; it accepted 7 days before).
 
-**[Planned] Remote hosts:** `LOG_ROOT\@<host name>\<project>.<service>\<YYYY-MM-DD>-<HH>.jsonl`. Lines use `pm: -1`, `s: "out" | "err"`, and add `"h": <host id>`. Host 1 paths and lines are unchanged. Caddy access records are never written as log lines.
+**[Built, M3] Remote hosts:** `LOG_ROOT\@<host name>\<project>.<service>\<YYYY-MM-DD>-<HH>.jsonl`. Lines use `pm: -1`, `s: "out" | "err"`, and `svc` is the service's log key, `@<host id>/<project>/<service>`, which names the host (no separate `h` field). Each line goes into the file of the hour of its own `ts` (not the arrival time), so lines an agent buffered during an outage are found by a search over their time; a line stamped in the future goes into the current hour. Lines the agent dropped are recorded as one line `{"s": "err", "msg": "[monitor] N lines dropped by the agent on <host> …"}`. Host 1 paths and lines are unchanged. Caddy access records are never written as log lines (the agent drops them).
 
 ---
 
@@ -341,6 +342,7 @@ Defaults live in `apps/backend/src/settings.ts`; only admin edits are stored.
 | `mongo.slow_ms` | 100 | Not read by any code yet; hidden on the Settings page |
 | `hosts.min_agent_version` | none | Lowest node agent version accepted, as `1.2.3`; older agents get 426 (phase 11 M1). Section "Remote hosts" |
 | `hosts.enroll_minutes` | 60 | Enrollment token lifetime, 5 to 1440 (phase 11 M1) |
+| `hosts.log_lines_per_s` | 200 | Log lines per second each agent ships per container, 10 to 2000; the rest are counted as dropped (phase 11 M3) |
 
 The phase 11 keys were planned as `agent.min_version` and `agent.enroll_minutes`. `agent.` is hidden on the Settings page for the unread `agent.max_tenants_per_report`, and the page's sections are by prefix, so they use `hosts.`.
 
@@ -628,6 +630,14 @@ Response `{ "hostId": 2, "hostName": "ubuntu-acs", "token": "…" }`. The host n
 { "v": 1, "batches": [ { "service": "acs/genieacs-cwmp",
   "lines": [ { "ts": 1790000010100, "s": "out", "msg": "…" } ], "dropped": 0 } ] }
 ```
+
+Answer from M3 (patch 0026): 200 with the services the agent must not follow and its limit; before M3 it was 204 with no body, which an agent reads as "nothing excluded, 200 lines/s".
+
+```json
+{ "excluded": ["acs/caddy"], "linesPerS": 200 }
+```
+
+`PATCH /api/v1/services/:id` takes `logExcluded` (admins, container services only; 400 for a PM2 service). Every service DTO carries `logKey` and `logExcluded`; `GET /services/:id` adds `logs: { lines, dropped, since }` for container services. `POST /logs/search` and the WebSocket log subscription accept log keys.
 
 **`POST /agent/v1/events`**
 

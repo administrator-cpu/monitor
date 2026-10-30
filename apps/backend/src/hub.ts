@@ -8,7 +8,7 @@ import {
 } from '@cc/shared';
 import type { AppContext } from './context';
 import { LogSubscription } from './logs/ring';
-import { SPECIAL_DIRS } from './logs/pipeline';
+import { logDirOf } from './logs/remote';
 
 interface LogSub {
   sub: LogSubscription;
@@ -214,7 +214,7 @@ export class LiveHub {
   }
 
   private knownLogService(name: string): boolean {
-    return name in SPECIAL_DIRS || this.ctx.services.getByPm2Name(name) !== undefined;
+    return logDirOf(name, this.ctx.services, this.ctx.hosts ?? { get: () => undefined }) !== null;
   }
 
   private subscribeLogs(

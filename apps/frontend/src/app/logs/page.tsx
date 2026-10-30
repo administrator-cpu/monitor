@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import {
+  LOCAL_HOST_ID,
   capRanges,
   spanLabel,
   type LogSearchRequest,
@@ -14,6 +15,7 @@ import {
 import { PageHead, Shell } from '@/components/Shell';
 import { api, ApiError, errorMessage, fetcher } from '@/lib/api';
 import { dateTime } from '@/lib/format';
+import { useLive } from '@/lib/live';
 
 const WINDOWS: readonly RangeOption[] = [
   { id: '15m', label: 'Last 15 minutes', ms: 15 * 60_000 },
@@ -26,7 +28,9 @@ const WINDOWS: readonly RangeOption[] = [
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
 function Search() {
-  const { data: svcs } = useSWR<ServicesResponse>('/services?archived=1', fetcher);
+  // Every host's services: container logs from agent hosts are searched next to this server's (M3).
+  const { data: svcs } = useSWR<ServicesResponse>('/services?archived=1&host=all', fetcher);
+  const { live } = useLive();
   // Log files older than `logs.retention_hours` are deleted, so no window reaches further back.
   const { data: limits } = useSWR<RangeLimitsResponse>('/limits', fetcher, { revalidateOnFocus: false });
   const windows = useMemo(() => capRanges(WINDOWS, limits?.logSearchMaxMs, (ms) => `Last ${spanLabel(ms)}`), [limits?.logSearchMaxMs]);
@@ -44,11 +48,14 @@ function Search() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LogSearchResponse | null>(null);
 
+  const hostName = (id: number) => live?.hosts?.find((h) => h.id === id)?.name ?? `host ${id}`;
   const options = [
-    ...(svcs?.services ?? []).map((s) => ({ value: s.pm2Name, label: s.name })),
+    // A container whose shipping is off keeps what was stored before, so it stays searchable.
+    ...(svcs?.services ?? []).map((s) => ({ value: s.logKey, label: s.hostId === LOCAL_HOST_ID ? s.name : `${s.name} · ${hostName(s.hostId)}` })),
     { value: '_nginx', label: 'Nginx (access and error)' },
     { value: '_monitor', label: "This monitor's own log" },
   ];
+  const labels = new Map(options.map((o) => [o.value, o.label]));
   const toggle = (v: string) => setPicked((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
 
   async function submit(e: React.FormEvent) {
@@ -151,7 +158,7 @@ function Search() {
               {result.lines.map((l, i) => (
                 <div key={i} className={`log-line ${l.s === 'err' || l.s === 'error' ? 'err' : ''} ${l.ctx ? 'ctx' : ''}`}>
                   <span className="log-ts">{dateTime(l.ts)}</span>
-                  <span className="log-pm">{l.svc}#{l.pm}</span>
+                  <span className="log-pm">{labels.get(l.svc) ?? l.svc}{l.pm >= 0 ? `#${l.pm}` : ''}</span>
                   <span className="log-msg">{l.msg.replace(ANSI, '').replace(/\n$/, '')}</span>
                 </div>
               ))}

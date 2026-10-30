@@ -36,6 +36,11 @@ export class DockerClient {
     private readonly fetchImpl: Fetch = fetch,
   ) {}
 
+  /** A container's log stream (see `openLogs`). */
+  logs(id: string, since: string, signal: AbortSignal): Promise<AsyncIterable<Uint8Array>> {
+    return openLogs(this.baseUrl, id, since, signal, this.fetchImpl);
+  }
+
   private url(p: string): string {
     return this.baseUrl.replace(/\/$/, '') + p;
   }
@@ -91,6 +96,27 @@ export class DockerClient {
       if (buf.length > 1_000_000) buf = ''; // never hold an unbounded line
     }
   }
+}
+
+/**
+ * Opens `GET /containers/{id}/logs` following stdout and stderr with Docker's timestamps, from
+ * `since` (seconds, with a fraction to the nanosecond). The body is Docker's multiplexed stream
+ * (or the raw stream of a container with a TTY); `LogParser` reads it.
+ */
+export async function openLogs(
+  baseUrl: string,
+  id: string,
+  since: string,
+  signal: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AsyncIterable<Uint8Array>> {
+  const q = `follow=1&stdout=1&stderr=1&timestamps=1&since=${encodeURIComponent(since)}`;
+  const r = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/containers/${encodeURIComponent(id)}/logs?${q}`, { signal });
+  if (!r.ok || !r.body) {
+    await r.body?.cancel();
+    throw new Error(`docker /containers/{id}/logs: HTTP ${r.status}`);
+  }
+  return r.body as unknown as AsyncIterable<Uint8Array>;
 }
 
 export interface DockerStats {

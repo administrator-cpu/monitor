@@ -88,6 +88,8 @@ export const SETTING_DEFS = {
   'hosts.min_agent_version': { type: 'string', default: null, normalize: normalizeVersion },
   /** How long a new enrollment token works (phase 11). */
   'hosts.enroll_minutes': { type: 'number', default: 60, int: true, min: 5, max: 1440 },
+  /** Log lines per second each agent ships per container; the rest are counted as dropped (M3). */
+  'hosts.log_lines_per_s': { type: 'number', default: 200, int: true, min: 10, max: 2000 },
   'agent.max_tenants_per_report': { type: 'number', default: 50, int: true, min: 1, max: 500 },
   'mongo.slow_ms': { type: 'number', default: 100, int: true, min: 1, max: 60000 },
 } satisfies Record<string, NumberDef | StringDef>;

@@ -48,7 +48,7 @@ services:
     volumes:
       - /:/host:ro,rslave # statfs of the mounts in CC_DISKS; nothing is written
       - /run:/host-run:ro # /run/reboot-required
-      - cc-agent-state:/var/lib/cc-agent # the host token: the only writable path
+      - cc-agent-state:/var/lib/cc-agent # host token, container state, log positions and buffer: the only writable path
     # cc-internal reaches only the proxy; cc-egress is the way out to the monitor. M4 adds the acs
     # network (acs_default) for MongoDB and the application relay.
     networks: [cc-internal, cc-egress]

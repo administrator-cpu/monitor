@@ -3,11 +3,9 @@ import { logSearchSchema, spanLabel, type LogSearchResponse } from '@cc/shared';
 import type { AppContext } from '../context';
 import { requireUser } from '../guard';
 import { rangeLimits } from '../limits';
-import { safeDirName } from '../logs/files';
+import { logDirOf } from '../logs/remote';
 import { regexProblem } from '../logs/search';
 import { SearchBusyError } from '../logs/searcher';
-
-const SPECIAL = new Set(['_nginx', '_monitor']);
 
 export function logSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
   // Raw logs can hold emails and tokens, so searching is limited to logged-in users and every search is audited.
@@ -24,16 +22,16 @@ export function logSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
       const problem = regexProblem(q.query);
       if (problem) return reply.code(400).send({ error: 'invalid_regex', message: problem });
     }
-    const known = new Set(ctx.services.list(true).map((s) => s.source_key));
-    const unknown = q.services.filter((s) => !SPECIAL.has(s) && !known.has(s));
-    if (unknown.length > 0) return reply.code(400).send({ error: 'unknown_service', message: 'One of the services is not known.' });
+    // PM2 names of host 1, `_nginx`, `_monitor`, or log keys of services on other hosts (M3).
+    const dirs = q.services.map((s) => logDirOf(s, ctx.services, ctx.hosts));
+    if (dirs.some((d) => d === null)) return reply.code(400).send({ error: 'unknown_service', message: 'One of the services is not known.' });
 
     const max = ctx.settings.get('logs.search_max_results');
     const actor = req.auth!.user;
     try {
       const res = await ctx.searcher.search(actor.id, {
         root: ctx.config.logRoot,
-        dirs: [...new Set(q.services.map((s) => (SPECIAL.has(s) ? s : safeDirName(s))))],
+        dirs: [...new Set(dirs as string[])],
         from: q.from,
         to: q.to,
         stream: q.stream,

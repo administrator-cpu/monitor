@@ -7,7 +7,8 @@
  *  - a pretend Docker API, as cc-docker-proxy would pass it through: the nine `acs` containers of
  *    V20 and the agent's own two, with an event stream. `cpe-sim` stops every DEMO_FLAP_S seconds
  *    (300) for 120 s, so "service down" opens and resolves on the demo host; 0 keeps it as it
- *    started, which is running unless DEMO_CPE_DOWN=1.
+ *    started, which is running unless DEMO_CPE_DOWN=1. Every running container writes a log line
+ *    every 4 s (genieacs-cwmp every second), shipped by the agent like on acs-prod (M3).
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -76,6 +77,7 @@ export async function startDemoHost(ctx: AppContext, apiBase: string, dir: strin
   ];
   let cpeRunning = process.env.DEMO_CPE_DOWN !== '1'; // DEMO_CPE_DOWN=1: cpe-sim starts stopped (the e2e tests)
   const streams = new Set<http.ServerResponse>();
+  const logStreams = new Set<http.ServerResponse>();
   const emit = (id: string, action: string, attrs: Record<string, string> = {}): void => {
     const x = containers.find((k) => k.Id === id)!;
     const t = Date.now();
@@ -113,6 +115,33 @@ export async function startDemoHost(ctx: AppContext, apiBase: string, dir: strin
         }),
       );
     }
+    const logsOf = /^\/containers\/([^/]+)\/logs$/.exec(u.pathname);
+    if (req.method === 'GET' && logsOf) {
+      // Docker's multiplexed stream with timestamps: a line every few seconds, stderr now and then.
+      const x = containers.find((k) => k.Id === logsOf[1]);
+      if (!x || (x.service === 'cpe-sim' && !cpeRunning)) return res.end();
+      res.setHeader('content-type', 'application/vnd.docker.multiplexed-stream');
+      res.writeHead(200);
+      let n = 0;
+      const write = (): void => {
+        n += 1;
+        const err = n % 7 === 0;
+        const msg = err ? `warn: ${x.service} slow request ${n}` : `${x.service} handled request ${n} in ${Math.floor(Math.random() * 90) + 5} ms`;
+        const body = Buffer.from(`${new Date().toISOString().replace('Z', '000000Z')} ${msg}\n`);
+        const head = Buffer.alloc(8);
+        head[0] = err ? 2 : 1;
+        head.writeUInt32BE(body.length, 4);
+        res.write(Buffer.concat([head, body]));
+      };
+      write();
+      const every = setInterval(write, x.service === 'genieacs-cwmp' ? 1_000 : 4_000);
+      logStreams.add(res);
+      req.on('close', () => {
+        clearInterval(every);
+        logStreams.delete(res);
+      });
+      return;
+    }
     if (req.method === 'GET' && u.pathname === '/events') {
       res.writeHead(200);
       res.flushHeaders();
@@ -132,6 +161,7 @@ export async function startDemoHost(ctx: AppContext, apiBase: string, dir: strin
     timers.push(
       setInterval(() => {
         cpeRunning = false;
+        for (const s of logStreams) if (s.req.url?.includes(cpeId)) s.end();
         emit(cpeId, 'kill', { signal: '9' });
         emit(cpeId, 'die', { exitCode: '137' });
         emit(cpeId, 'stop');
@@ -172,13 +202,18 @@ export async function startDemoHost(ctx: AppContext, apiBase: string, dir: strin
       hostRun,
       stateDir,
       intervalMs: 10_000,
+      logs: true,
+      logBufferBytes: 50 * 1024 * 1024,
+      logLinesPerS: null,
     },
     client,
     reader,
     docker: new DockerClient(dockerUrl),
     log,
     hostname: OWN_ID.slice(0, 12),
+    logs: { bufferDir: path.join(stateDir, 'log-buffer'), bufferMaxBytes: 50 * 1024 * 1024 },
   });
+  await agent.loadState();
   agent.start();
   ctx.log.info({ host: name, docker: dockerUrl, flapSeconds: flapS }, 'demo host ready: switch to it on the Host and Services pages');
 
@@ -186,6 +221,7 @@ export async function startDemoHost(ctx: AppContext, apiBase: string, dir: strin
     for (const t of timers) clearInterval(t);
     await agent.stop();
     for (const s of streams) s.end();
+    for (const s of logStreams) s.end();
     docker.closeAllConnections();
     await new Promise<void>((r) => docker.close(() => r()));
   };

@@ -228,7 +228,7 @@ test('the host switcher shows the demo Ubuntu host, reported by the real node ag
   await pick.selectOption({ label: 'ubuntu-acs' });
   await expect(page).toHaveURL(/\/host\?host=\d+$/);
   await expect(page.getByRole('heading', { name: 'Host · ubuntu-acs', level: 1 })).toBeVisible();
-  await expect(page.getByTestId('agent-info')).toContainText('0.2.1', { timeout: 30_000 });
+  await expect(page.getByTestId('agent-info')).toContainText('0.3.0', { timeout: 30_000 });
   await expect(page.getByTestId('agent-host-details')).toContainText('Last report');
   await expect(page.getByRole('region', { name: 'Disks' })).toContainText('/');
   await expect(page.getByRole('region', { name: 'Agent' })).toContainText('docker');
@@ -249,11 +249,41 @@ test('the host switcher shows the demo Ubuntu host, reported by the real node ag
   await cpe.getByRole('link', { name: 'cpe-sim' }).click();
   await expect(page.getByRole('heading', { name: 'cpe-sim', level: 1 })).toBeVisible();
   await expect(page.locator('body')).toContainText('container acs/cpe-sim');
-  await expect(page.locator('body')).toContainText('Container logs arrive with phase 11 step M3');
+  // Stopped: nothing to follow, but the log card and the counts are there (M3).
+  await expect(page.getByRole('region', { name: 'Logs' })).toBeVisible();
+  await expect(page.getByTestId('log-counts')).toContainText('lines received');
 
   // Back to this server: the address loses ?host and PM2's services return.
   await page.goto('/services?host=2');
   await page.getByRole('combobox', { name: 'Host' }).selectOption({ label: 'windows-vps (this server)' });
   await expect(page).toHaveURL(/\/services$/);
   await expect(page.getByRole('region', { name: 'Services' })).toContainText('chatty');
+});
+
+test('container logs from the demo host: live tail, search next to this server’s, and the switch to stop shipping (phase 11 M3)', async () => {
+  // Moves between pages by their links: the whole suite runs close to the API's 300 requests a minute.
+  const page = shared;
+  await page.goto('/services?host=2');
+  await page.getByRole('region', { name: 'Services' }).getByRole('link', { name: 'genieacs-cwmp' }).click();
+  await expect(page.getByRole('heading', { name: 'genieacs-cwmp', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('log-box')).toContainText('genieacs-cwmp handled request', { timeout: 30_000 });
+  await expect(page.getByTestId('log-counts')).toContainText(/[1-9][\d,]* lines received/);
+
+  // Searched with this server's services; the line names its host.
+  await page.getByRole('link', { name: 'Log search' }).first().click();
+  await page.getByLabel('genieacs-cwmp · ubuntu-acs', { exact: true }).check();
+  await page.getByLabel('chatty', { exact: true }).check();
+  await page.getByTestId('search-query').fill('handled request');
+  await page.getByTestId('search-go').click();
+  const results = page.getByTestId('search-results');
+  await expect(results).toContainText('genieacs-cwmp handled request', { timeout: 20_000 });
+  await expect(results).toContainText('genieacs-cwmp · ubuntu-acs');
+
+  // Switched off, the page says so (the agent stops following it); then switched on again.
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'genieacs-cwmp', level: 1 })).toBeVisible();
+  await page.getByTestId('log-ship-toggle').click();
+  await expect(page.getByTestId('logs-excluded')).toBeVisible();
+  await page.getByTestId('log-ship-toggle').click();
+  await expect(page.getByTestId('log-box')).toBeVisible();
 });

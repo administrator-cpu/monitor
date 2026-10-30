@@ -29,6 +29,7 @@ async function main(): Promise<void> {
     projects: config.projects,
     disks: config.disks,
     docker: config.dockerUrl,
+    logs: config.logs ? `on, buffer ${Math.round(config.logBufferBytes / 1048576)} MB` : 'off',
     actions: config.actions ? 'on' : 'off',
   });
 
@@ -64,6 +65,14 @@ async function main(): Promise<void> {
     log,
     hostname: os.hostname(),
     store: fileStore(path.join(config.stateDir, 'containers.json')),
+    logs: config.logs
+      ? {
+          bufferDir: path.join(config.stateDir, 'log-buffer'),
+          bufferMaxBytes: config.logBufferBytes,
+          linesPerS: config.logLinesPerS,
+          cursors: jsonFile<Record<string, string>>(path.join(config.stateDir, 'log-positions.json')),
+        }
+      : undefined,
   });
   await agent.loadState();
   agent.start();
@@ -79,6 +88,10 @@ async function main(): Promise<void> {
 
 /** The tracker's state as JSON on the state volume, replaced atomically (write, then rename). */
 function fileStore(file: string): TrackerStore {
+  return jsonFile(file);
+}
+
+function jsonFile<T>(file: string): { load(): Promise<unknown>; save(v: T): Promise<void> } {
   return {
     load: () =>
       fs.readFile(file, 'utf8').then(

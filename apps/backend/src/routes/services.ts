@@ -98,6 +98,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
         const reason = ctx.actions.blockedReason(row, null);
         return { ok: reason === null, reason };
       })(),
+      logs: row.kind === 'container' ? ctx.remoteLogs.statsOf(row.id) : null,
     };
   });
 
@@ -194,6 +195,10 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (Object.keys(patch).length === 0) {
       return reply.code(400).send({ error: 'invalid_request', message: 'Nothing to change.' });
     }
+    if (patch.logExcluded !== undefined && before.kind !== 'container') {
+      // PM2 output on this server is read from PM2 itself; only agents ship logs (M3).
+      return reply.code(400).send({ error: 'invalid_request', message: 'Log shipping can only be switched off for container services.' });
+    }
     try {
       const after = ctx.services.update(before.id, patch, liveNames(ctx.state.getProcessStates(before.host_id)));
       if (patch.isArchived === true) ctx.alerts.onServiceArchived(before.id);
@@ -204,7 +209,12 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
         username: actor.username,
         ip: req.ip,
         userAgent: req.headers['user-agent'],
-        detail: { serviceId: before.id, pm2Name: before.source_key, changed: Object.keys(patch) },
+        detail: {
+          serviceId: before.id,
+          pm2Name: before.source_key,
+          changed: Object.keys(patch),
+          ...(patch.logExcluded !== undefined ? { hostId: before.host_id, logExcluded: patch.logExcluded } : {}),
+        },
       });
       return { service: ctx.services.toDto(after) };
     } catch (e) {

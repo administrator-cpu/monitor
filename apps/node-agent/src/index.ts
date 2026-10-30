@@ -9,3 +9,4 @@ export { DockerClient, type DockerContainer, type DockerEvent } from './docker';
 export { jsonLog, silentLog, type Log } from './log';
 export { HostReader } from './proc';
 export { AGENT_VERSION } from './version';
+export { LogParser, LogShipper, isCaddyAccessRecord, parseTs } from './logs';
