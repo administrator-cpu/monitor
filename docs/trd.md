@@ -84,7 +84,7 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 | Email | Resend over `fetch`; webhooks verified with `svix` | Built |
 | Passwords | `bcrypt` cost 12, fallback `bcryptjs` | Built |
 | Own logs | `pino`, into the log pipeline as `_monitor` | Built |
-| Frontend | Next.js 16, React 19, uPlot | Built |
+| Frontend | Next.js 16 (16.4.3 or later, F3), React 19, uPlot | Built |
 | Backend process manager | PM2, process `monitor-api` | Built (see below) |
 | Packages | pnpm 10 workspace | Built |
 

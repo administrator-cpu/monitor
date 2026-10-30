@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 to H8 and F1 merged to `main` (PR #3, PR #4); branch protection is the owner's step. F2 (hidden settings) as patch 0010. Server checks pending; H9 waits for O1 |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 to H8 and F1 merged to `main` (PR #3, PR #4); branch protection is the owner's step. F2 (hidden settings, patch 0010) and F3 (Next.js 16.4.3, patch 0011) on the branch. Server checks pending; H9 waits for O1 |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -72,6 +72,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-29 | Parts 0 to C recorded as built. Phase 10.5 added from the code review. Phase 11 approved with the owner's decisions, extended with remote actions (M5) and a separate UI step (M6), migrations renumbered to `010` to `012`. One canonical on-host list. Appendix A with every finding |
 | v3 | 2026-10-29 | Documents moved into `docs/` (H1). H1 repository items done in the H1 pull request; branch protection left to the owner |
 | v3 | 2026-10-30 | F1 merged (PR #4). F2 added: the Settings page shows the GitHub and dashboard action settings (patch 0010) |
+| v3 | 2026-10-30 | F3 added: Next.js raised to 16.4.3 for three security advisories (patch 0011) |
 
 ---
 
@@ -221,8 +222,15 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 
 - [x] Symptom: `github.poll_minutes` and `actions.stop_mute_minutes` could be changed through the API but did not appear on the Settings page, although the page had help text for both.
 - [x] Cause: the page listed only keys under the prefixes in its own `GROUPS` list, which had no `github.` or `actions.` entry; anything else was dropped without a sign.
-- [x] Fix, patch 0010: the sections now live in `@cc/shared` (`SETTING_GROUPS`, `groupSettings`) with new "Dashboard actions" and "GitHub" sections. `agent.` and `mongo.` keys stay hidden on purpose (`HIDDEN_SETTING_PREFIXES`; nothing reads them yet). Any other key without a section is shown under "Other" instead of being dropped. A backend test (`settings-groups.test.ts`) fails when a server setting has no section and is not on the hidden list, so the next new setting cannot disappear this way. An end-to-end check was added to `e2e/phase3-5.spec.ts`.
+- [x] Fix, patch 0010: the sections now live in `@cc/shared` (`SETTING_GROUPS`, `groupSettings`) with new "Dashboard actions" and "GitHub" sections. `agent.` and `mongo.` keys stay hidden on purpose (`HIDDEN_SETTING_PREFIXES`; nothing reads them yet). Any other key without a section is shown under "Other" instead of being dropped. A backend test (`settings-groups.test.ts`) fails when a server setting has no section and is not on the hidden list, so the next new setting cannot disappear this way. An end-to-end check was added to `e2e/phase3-5.spec.ts` (it passed with patch 0011, when the build ran again).
 - [ ] Server check: the Settings page shows "Dashboard actions" and "GitHub" sections; saving `github.poll_minutes` works.
+
+#### F3: Next.js security advisories (found 2026-10-30)
+
+- [x] Symptom: `next build` stopped with "Your version of Next.js is affected by a known security vulnerability".
+- [x] Cause: `next` 16.4.0 is in the range of three advisories (all `>=16.0.0 <=16.4.0`): GHSA-2464-fhr4-w9xw (critical, remote code execution in the Image Optimization API with SVG files), GHSA-673q-mjm6-r5xr (critical, remote code execution in `use cache` functions returning typed arrays) and GHSA-p3m5-59mp-jv5r (high, denial of service with Server Actions). The dashboard uses none of these features (no `next/image`, no `use cache`, no Server Actions), so the exposure was low, but the Vercel deployment runs the affected server.
+- [x] Fix, patch 0011: `next` raised to `^16.4.3` (same minor release; only `next` and its `@next/*` packages change in the lockfile). The npm advisory database lists nothing for 16.4.3. Typecheck, unit tests, `next build` and all 23 end-to-end tests pass.
+- [ ] Server check: the Vercel build for the merge succeeds and its log shows Next.js 16.4.3; `monitor.thediv.in` signs in and the Overview is live.
 
 #### H9: `monitor-api` outside PM2, if O1 is yes (1 day)
 

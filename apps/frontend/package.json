@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@cc/shared": "workspace:*",
-    "next": "^16.4.0",
+    "next": "^16.4.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "swr": "^2.5.1",
