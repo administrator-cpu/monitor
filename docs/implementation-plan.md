@@ -19,7 +19,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
 | 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 and H8 server steps and the open checks in 0.3 |
-| 11 | Multi-host M1 to M6 | In progress | M1 code done (patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. Server: V25 before merge, then `docs/runbook-hosts.md`. M2 to M6 open |
+| 11 | Multi-host M1 to M6 | In progress | M1 code done (patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. V25 passed 2026-10-30; next the merge, Nginx `/agent/` and V26 (`docs/runbook-hosts.md`). M2 to M6 open |
 | later | TOTP, more alert channels | Not started | |
 
 ### 0.2 What happens next
@@ -29,7 +29,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 3. **H2 to H8**, one small pull request each, each checked on the server (0.3).
 4. **Run the open on-host checks** V1 to V18 and record results here.
 5. **Owner inputs for phase 11:** O4 (health path), O5 (backup folder and offsite marker), O6 (Caddy log to file), plus the M2 facts V20 to V24.
-6. **Phase 11** from M1 to M6. M1 code is done (patch 0016); before merging it, V25 (migration `010` on a copy, `docs/runbook-hosts.md` section 1). M1 and M2 already put the Ubuntu host on the dashboard with alerts.
+6. **Phase 11** from M1 to M6. M1 code is done (patch 0016) and V25 passed; merge it, then Nginx `/agent/` and V26 (`docs/runbook-hosts.md` sections 2 and 3). M1 and M2 already put the Ubuntu host on the dashboard with alerts.
 7. **Before M5 is switched on:** decide O3 (TOTP per action or Cloudflare Access).
 
 ### 0.3 On-host checks (canonical list)
@@ -56,13 +56,13 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V16 | Part A: each service mapped (D7); a service behind shows "N behind"; `monitor-api` shows its deployed commit (after H9: Host page, "Monitor health", "Deployed commit") | A | Open |
 | V17 | The UI checked once on a real phone | 2 | Open |
 | V18 | The deploy run for `e31724b` succeeded (GitHub Actions log) and `.deploy-sha` matches `main` | 10 | Open |
-| V19 | After H7: a restore from the nightly backup works | 10.5 | Open |
+| V19 | After H7: a restore from the nightly backup works | 10.5 | Open. Blocked: on 2026-10-30 `E:\monitor-backups` had no nightly file, only deploy copies; diagnose with `docs/runbook-backups.md` section 5 |
 | V20 | Ubuntu: name of the `acs` compose network and of the Mongo service; full container list | 11 (M2) | Open |
 | V21 | Ubuntu: a non-root container with `pid: host` can read `/proc/1/net/dev` | 11 (M2) | Open |
 | V22 | Ubuntu: `/var/log/auth.log` and `/var/log/fail2ban.log` exist and are group `adm` | 11 (M4) | Open |
 | V23 | Ubuntu: Caddy writes JSON access logs to a file in a named volume and not to stdout (O6) | 11 (M4) | Open |
 | V24 | Ubuntu: backup folder path and the `.offsite-ok` marker after an upload (O5) | 11 (M4) | Open |
-| V25 | Migration `010` on a copy of the production database: `pnpm --filter @cc/backend migration:check <copy>` prints OK; record the time (`docs/runbook-hosts.md` section 1). Before the M1 merge | 11 (M1) | Open. Here: 0.06 s on a 164 MB database shaped like eight days of production data, every row, service key and open incident kept |
+| V25 | Migration `010` on a copy of the production database: `node apps\backend\scripts\migration-check.mjs <copy>` prints OK; record the time (`docs/runbook-hosts.md` section 1). Before the M1 merge | 11 (M1) | **Passed 2026-10-30 14:17.** Copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents): `010` in 0.61 s, every row kept, services and open incidents unchanged. Run with a standalone `node:sqlite` script, the forerunner of `migration-check.mjs` (patch 0017). Here: 0.06 s on a 164 MB database shaped like eight days of production data |
 | V26 | After the M1 deploy: pages and open incidents unchanged; Hosts lists `windows-vps`; `/agent/v1/metrics` gives 401 without a token and 403 with an `Origin` through Nginx; optional enrollment dry run (`docs/runbook-hosts.md` section 3) | 11 (M1) | Open |
 
 ### 0.4 Change log
@@ -80,6 +80,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | F4 merged (PR #8); its deploy was the first through the service (1 min, no forced stop). PM2 entry deleted. H9 and V2 done; V8 partly |
 | v3 | 2026-10-30 | P1: Overview summary (monitor card, alerts, backups and certificates, GitHub and email), patch 0015 |
 | v3 | 2026-10-30 | P1 merged (PR #10). Phase 11 M1 code done as patch 0016; V25 and V26 added. The new settings use the prefix `hosts.` (not `agent.`, which stays hidden for the unread `agent.max_tenants_per_report`) |
+| v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
 
 ---
 
@@ -209,7 +210,7 @@ Done as patch 0006. The in-memory map is gone. Start and Restart delete that ser
 - [x] Runbook: restore steps (stop, copy, start, check): `docs/runbook-backups.md`, with `scripts/check-backup.ps1` for the test on a copy.
 - [ ] Do one restore on a copy (V19).
 
-Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and writes the day's file once it is past 02:30 server time; it writes to `.partial`, runs `PRAGMA quick_check` on the copy and renames it, then keeps the newest `backup.keep` (14, new setting) nightly files. Before 02:30 it fails while yesterday's file is missing (unless the folder has no backups yet), so a lost day keeps the alert open. New variable `BACKUP_DIR`: default `E:\monitor-backups` on Windows, off elsewhere, `off` switches it off. Deploy backups go to `E:\monitor-backups\deploy`; the old `C:\monitor\backups` is left for the owner to delete. Owner steps on the server: rclone with a `crypt` remote, the scheduled task, and V19 (runbook sections 2 and 3). Server check: after the first night, today's file exists and there is no "Collector stale" for `backup`.
+Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and writes the day's file once it is past 02:30 server time; it writes to `.partial`, runs `PRAGMA quick_check` on the copy and renames it, then keeps the newest `backup.keep` (14, new setting) nightly files. Before 02:30 it fails while yesterday's file is missing (unless the folder has no backups yet), so a lost day keeps the alert open. New variable `BACKUP_DIR`: default `E:\monitor-backups` on Windows, off elsewhere, `off` switches it off. Deploy backups go to `E:\monitor-backups\deploy`; the old `C:\monitor\backups` is left for the owner to delete. Owner steps on the server: rclone with a `crypt` remote, the scheduled task, and V19 (runbook sections 2 and 3). Server check: after the first night, today's file exists and there is no "Collector stale" for `backup`. **Not met on 2026-10-30:** only deploy copies in `E:\monitor-backups\deploy`, no `monitor-YYYYMMDD.db`. The code reads correctly and its tests pass, so the cause is on the server; `runbook-backups.md` section 5 says what to read (Overview "Last backup", the startup log's `backupDir`, `collector failed` lines) and what each answer means.
 
 #### H8: Nginx limits and exposure (0.25 day)
 
@@ -279,7 +280,7 @@ Acceptance for 10.5: every H item merged through a pull request, its test green,
 
 #### M1: Hosts, ingest, enrollment (4 to 5 days) [Code done, patch 0016]
 
-- [x] Migration `010_hosts.sql` (schema 13.1 to 13.3). Timed here on a 164 MB database shaped like eight days of production data: 0.06 s, every row kept. On the production copy: V25, with the new `migration:check` command. Existing tests pass; four changed only where they name the new schema (rule count 30, migration list, `source_key`, `host_id` in a rolled-up row).
+- [x] Migration `010_hosts.sql` (schema 13.1 to 13.3). Timed here on a 164 MB database shaped like eight days of production data: 0.06 s, every row kept. On the production copy (V25, 2026-10-30): 0.61 s on 13.8 MB, every row, service and open incident kept. Existing tests pass; four changed only where they name the new schema (rule count 30, migration list, `source_key`, `host_id` in a rolled-up row).
 - [x] `ServicesRepo` keyed by `(host_id, source_key)`; DTOs gain `hostId`, `kind`, `sourceKey` (`pm2Name` kept). `list()` and `getByPm2Name()` mean host 1 unless asked otherwise, so PM2, Nginx, GitHub and the log folders see exactly what they saw before. PM2 actions refuse services on other hosts.
 - [x] State store keyed by host: `HostSlice` per host (CPU, memory, swap, network, uptime, disks, series, the latest container list); host 1 fed by today's collectors; processes tagged by host. Persistence, rollup and the host history (`GET /history/host?host=<id>`) group by host.
 - [x] Fingerprint helper `hostTarget()`: host-scoped targets on hosts other than 1 prefixed `@<id>/`; host 1 unchanged.
@@ -289,7 +290,8 @@ Acceptance for 10.5: every H item merged through a pull request, its test green,
 - [x] Nginx: `/agent/` location in `runbook-nginx.md` with `client_max_body_size 2m`, `limit_req` (1200 per minute, burst 100), cookies removed, 60 s read timeout; checked with Nginx 1.24 by `nginx-config.test.ts`.
 - [x] `host.silent` rule (critical, 120 s after 30 s without a request) and evaluator; it suppresses the host's other incidents except `host.probe_failed`; a revoked host's incidents end without email.
 - [x] Tests: 20 backend (`hosts.test.ts`: migration on a filled 009 database, enrollment, rotation, revoke, `Origin`, gzip bomb, strict bodies, version, rate limits, storage per host, `host.silent`, services per host), one Nginx, one Playwright (add a host, enroll once, report, revoke).
-- [ ] Owner: V25 before the merge; Nginx `/agent/` and V26 after (`docs/runbook-hosts.md`).
+- [x] Owner: V25 before the merge (passed 2026-10-30).
+- [ ] Owner: Nginx `/agent/` and V26 after the merge (`docs/runbook-hosts.md`).
 
 Acceptance: `010` on the production copy leaves every page, rule and open incident unchanged; an enrollment token works once and not after an hour; a revoked token gets 401; a 100 KB gzip body that inflates past the limit gets 413; a request with `Origin` gets 403. The last four are tests in `hosts.test.ts`; the first is V25 and V26.
 

@@ -50,7 +50,7 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Frontend Playwright | Not rerun (needs a browser build) |
 | Integration helpers | `pm2:check`, `mongo:check`, `size:check`, `smoke:watchdog`, `demo` exist; not rerun |
 
-Phase 11 M1 (patch 0016, on `h1/repo-hygiene`): 434 backend tests pass with Nginx 1.24 installed (without Nginx its five configuration tests are skipped); 42 watchdog, 15 agent; typecheck clean; `next build` and 25 Playwright tests pass. `migration:check` on a 164 MB database shaped like eight days of production data: `010` in 0.06 s, every row kept.
+Phase 11 M1 (patch 0016, on `h1/repo-hygiene`): 434 backend tests pass with Nginx 1.24 installed (without Nginx its five configuration tests are skipped); 42 watchdog, 15 agent; typecheck clean; `next build` and 25 Playwright tests pass. Migration check on a 164 MB database shaped like eight days of production data: `010` in 0.06 s, every row kept; on the production copy (V25): 0.61 s on 13.8 MB, every row kept. Patch 0017: the check is `apps/backend/scripts/migration-check.mjs` on Node's built-in `node:sqlite`, so it runs on the VPS with nothing installed.
 
 ### 0.3 Change log
 
