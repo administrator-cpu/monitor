@@ -549,6 +549,8 @@ Not allowed, among others: inspect (`/containers/{id}/json`, which returns every
 
 Tests in CI start the proxy against a fake Docker socket and assert 403 on every forbidden path.
 
+**As built (M2, patch 0022).** `apps/docker-proxy`: `haproxy.cfg` on `haproxy:2.8-alpine`, the image's own `haproxy` user. Each path is matched in full with an optional `/v1.NN` prefix; any path containing `..`, `%` or `//` is refused first, so no encoding can turn an allowed prefix into another endpoint. Only refusals are logged. `ALLOW_ACTIONS` defaults to `0` in the image; M5 sets it to `1`. `apps/docker-proxy/test/proxy.test.mjs` runs the real HAProxy (CI installs `haproxy` from Ubuntu, the same 2.8 series) against a fake Docker socket: the reads pass, 52 forbidden requests (inspect, archive, export, exec, attach, create, kill, update, pause, rename, wait, prune, DELETE, images, volumes, networks, build, swarm, secrets, configs, plugins, session, services, nodes, tasks, info, system, wrong methods, `..`, `%2e%2e`, `%2F`, `//`, a doubled version prefix) get 403 without reaching Docker, and the three actions pass only with `ALLOW_ACTIONS=1`.
+
 ### 14.5 Collection on the Ubuntu host
 
 | Area | Method | Interval |
@@ -569,6 +571,8 @@ Tests in CI start the proxy against a fake Docker socket and assert 403 on every
 | SSH failures | Count "Failed password" and "Invalid user" lines in `/host-log/auth.log` | 60 s |
 
 Client addresses read from `auth.log` and `fail2ban.log` are never stored or sent; only counts.
+
+**As built (M2, patch 0022).** `apps/node-agent` (`@cc/node-agent` 0.2.0), Node 22, no runtime dependencies (only types from `@cc/shared`). One report per `CC_INTERVAL_S` (10 s): CPU, per-core CPU, network and disk I/O are averages over the interval from `/proc` counters (not one instant); memory used is `MemTotal - MemAvailable`; disk usage by `statfs` under `/host`, with total = used + available to users, so the share matches `df`; disk I/O from `/proc/diskstats` through the mount's device in `/proc/1/mountinfo`. Containers: `GET /containers/json?all=1` filtered on the compose project label, one-shot stats for running containers (4 at a time), grouped by `<project>/<service>` with the worst state and health of the replicas, the youngest uptime (from events, else the "Up …" text) and summed CPU and memory; the agent's own project is found from its own container (hostname = container id) or `CC_OWN_PROJECT`, and its containers carry `own: true`. Events: the Docker event stream, reconnecting with up to 30 s between tries; `die`, `start`, `stop`, `restart`, `oom` and `health_status` go to `/agent/v1/events` within 0.5 s with only the exit code or health status; a start after a die of the same container counts one restart. The host token is in `/var/lib/cc-agent/token` (mode 600); the enrollment token is never written, only a hash marking it used, so a restart does not enroll again and a new token in the env file does. Answers: 401 → wait 10 minutes; 426 → an hour; 429 → `Retry-After`; unreachable → 10, 20, 40 s, then every 60 s; a refused report (400, 413) is logged once a minute. Reports that could not be sent are dropped (they are snapshots); up to 1000 events wait.
 
 **Service identity.** A container belongs to service `<compose service>` in project `<compose project>`; its key is `<project>/<service>` (e.g. `acs/genieacs-cwmp`), its display name the compose service. Scaled replicas are instances of one service, like PM2 cluster instances. Discovery and auto-archive follow 4.1 using the container list; a stopped container is still listed. Containers without compose labels are ignored.
 
@@ -652,7 +656,7 @@ A collector on the Windows backend, per host, configured on the Hosts page:
 | Step | Scope | Main tests |
 |---|---|---|
 | M1 (merged, deployed, V26 passed) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
-| M2 (monitor side in patch 0021) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
+| M2 (monitor side in patch 0021, agent and proxy in 0022) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
 | M3 | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
 | M4 | Migration `012`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
 | M5 | Migration `013`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |

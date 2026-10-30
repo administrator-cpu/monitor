@@ -95,6 +95,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
 
+  apps/docker-proxy: {}
+
   apps/frontend:
     dependencies:
       '@cc/shared':
@@ -134,6 +136,21 @@ importers:
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
+
+  apps/node-agent:
+    devDependencies:
+      '@cc/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.20.5)(vite@8.3.3(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15))
 
   apps/watchdog:
     devDependencies:

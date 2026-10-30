@@ -85,6 +85,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
 | v3 | 2026-10-30 | M1 merged (PR #11, `772dd65`), patch 0017 (PR #12, `0528e71`), patch 0018 (PR #13, docs only). Not yet confirmed: the PR #11 and #12 deploys, Nginx `/agent/`, V26 |
 | v3 | 2026-10-30 | Patch 0019: status labels after the merges. `pnpm audit --prod` from 18 advisories to 7: `systeminformation` 5.33.19, `fastify` 5.12.7, `fast-uri` 3.1.9 and 4.2.3, `ip-address` 10.7.5 (through `@fastify/rate-limit`). Left: zod 4 and pm2 7, deferred (section 7). One build allow-list, in the root `package.json` (pnpm ignored the one in `pnpm-workspace.yaml`); esbuild's postinstall stays off, as it always was in practice |
+| v3 | 2026-10-30 | Patch 0022, M2 host side: `apps/docker-proxy` (HAProxy allowlist, tested with the real binary in CI) and `apps/node-agent` 0.2.0 (no runtime dependencies), both with Dockerfiles; images are built by CI from patch 0023 |
 | v3 | 2026-10-30 | Patch 0021, M2 monitor side: migration `011` (`tls_certs` per host; the planned M4 and M5 migrations become `012` and `013`), container services, events, per-host rules, `?host=` on `/host` and `/services`. V27 added |
 | v3 | 2026-10-30 | Patch 0019 merged (PR #14, `003d943`) and deployed. Deploys of PR #11 and #12 succeeded; Nginx `/agent/` in (`C:\nginx-1.30.2`; runbook path and zone names corrected, server state in `runbook-nginx.md` section 2.1); V26 passed; nightly backups run and V19's local part passed. `runbook-backups.md` runs the scripts from `C:\Apps\command-center-deploy`. `/admin` redirects to Admin → Users; the Hosts page's add panel sits below its header (patch 0020) |
 
@@ -306,8 +307,8 @@ Not in M1, as planned: container discovery and services from the container list 
 
 #### M2: Agent, proxy, host and containers (4 to 5 days)
 
-- [ ] `apps/docker-proxy`: HAProxy config with the TRD 14.4 allowlist and `ALLOW_ACTIONS`; CI test that every forbidden path returns 403.
-- [ ] `apps/node-agent`: host metrics from `/proc` and `statfs` (TRD 14.5), container list, stats and events through the proxy, restart counting, push every 10 s with retry and backoff, token on the state volume.
+- [x] `apps/docker-proxy`: HAProxy config with the TRD 14.4 allowlist and `ALLOW_ACTIONS`; CI test that every forbidden path returns 403 (patch 0022).
+- [x] `apps/node-agent`: host metrics from `/proc` and `statfs` (TRD 14.5), container list, stats and events through the proxy, restart counting, push every 10 s with retry and backoff, token on the state volume (patch 0022).
 - [x] Discovery and auto-archive of compose services, same rules as PM2 (patch 0021).
 - [ ] CI builds both images and pushes to GHCR on `main`.
 - [ ] Compose file and runbook "Adding a host" (enroll, env file, `docker compose up -d`, check).

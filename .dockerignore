@@ -1,0 +1,14 @@
+# Build context for the images in apps/docker-proxy and apps/node-agent (built from the root).
+.git
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/test-results
+**/playwright-report
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/.env
+**/.env.*
+data
