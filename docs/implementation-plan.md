@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 repository part on branch `h1/repo-hygiene`; branch protection is the owner's step. H2 to H8 code done on the same branch, server checks pending. About 4 to 5 days |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 to H8 and F1 merged to `main` (PR #3, PR #4); branch protection is the owner's step. F2 (hidden settings) as patch 0010. Server checks pending; H9 waits for O1 |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -71,6 +71,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v2 | 2026-10-29 | Phases 1 to 9 built, Parts 0 to C delivered, phase 11 proposed |
 | v3 | 2026-10-29 | Parts 0 to C recorded as built. Phase 10.5 added from the code review. Phase 11 approved with the owner's decisions, extended with remote actions (M5) and a separate UI step (M6), migrations renumbered to `010` to `012`. One canonical on-host list. Appendix A with every finding |
 | v3 | 2026-10-29 | Documents moved into `docs/` (H1). H1 repository items done in the H1 pull request; branch protection left to the owner |
+| v3 | 2026-10-30 | F1 merged (PR #4). F2 added: the Settings page shows the GitHub and dashboard action settings (patch 0010) |
 
 ---
 
@@ -215,6 +216,13 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 - [x] Cause: on Windows `systeminformation` runs `powershell.exe` for `mem()` (page file), `networkStats()` (adapter statistics and the adapter list) and `fsSize()` without any timeout. The `host` collector started several of them every 2 s; when one hung on WMI, the run stayed in flight and no new run started.
 - [x] Fix, patch 0009 (`collectors/winhost.ts`): on Windows the 2 s collector reads CPU and memory from Node and starts no process; a new `swapnet` collector reads swap and the network byte counters with one script every 15 s; disk sizes come from one script; both through `runPowerShell`, which kills the process after its timeout. Linux keeps `systeminformation` (it reads `/proc`). 5 new tests.
 - [ ] Server check: no "Collector stale" for `host` for a day; the Overview's CPU, memory, swap and network stay live; Task Manager does not show a new `powershell.exe` every 2 s. Network rates now update every 15 s.
+
+#### F2: Settings page hid two settings (noticed 2026-10-29)
+
+- [x] Symptom: `github.poll_minutes` and `actions.stop_mute_minutes` could be changed through the API but did not appear on the Settings page, although the page had help text for both.
+- [x] Cause: the page listed only keys under the prefixes in its own `GROUPS` list, which had no `github.` or `actions.` entry; anything else was dropped without a sign.
+- [x] Fix, patch 0010: the sections now live in `@cc/shared` (`SETTING_GROUPS`, `groupSettings`) with new "Dashboard actions" and "GitHub" sections. `agent.` and `mongo.` keys stay hidden on purpose (`HIDDEN_SETTING_PREFIXES`; nothing reads them yet). Any other key without a section is shown under "Other" instead of being dropped. A backend test (`settings-groups.test.ts`) fails when a server setting has no section and is not on the hidden list, so the next new setting cannot disappear this way. An end-to-end check was added to `e2e/phase3-5.spec.ts`.
+- [ ] Server check: the Settings page shows "Dashboard actions" and "GitHub" sections; saving `github.poll_minutes` works.
 
 #### H9: `monitor-api` outside PM2, if O1 is yes (1 day)
 

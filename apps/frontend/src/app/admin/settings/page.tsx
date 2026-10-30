@@ -2,20 +2,10 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import type { SettingEntry } from '@cc/shared';
+import { groupSettings, type SettingEntry } from '@cc/shared';
 import { PageHead, Shell } from '@/components/Shell';
 import { api, errorMessage, fetcher } from '@/lib/api';
 import { dateTime } from '@/lib/format';
-
-const GROUPS: [string, string][] = [
-  ['alert.', 'Alert email'],
-  ['logs.', 'Logs'],
-  ['retention.', 'Retention'],
-  ['backup.', 'Backups'],
-  ['pm2.', 'Services'],
-  ['session.', 'Sessions'],
-  ['login.', 'Sign-in protection'],
-];
 
 const HELP: Record<string, string> = {
   'alert.from': 'Sender shown on alert emails: name@your-domain.com or Name <name@your-domain.com>. The domain must be verified in Resend.',
@@ -101,24 +91,20 @@ function Settings() {
     <>
       <PageHead title="Settings" />
       {error && <div className="banner crit" role="alert">Could not load settings: {error.message}</div>}
-      {data && GROUPS.map(([prefix, title]) => {
-        const rows = data.settings.filter((s) => s.key.startsWith(prefix) && s.type !== 'list');
-        if (rows.length === 0) return null;
-        return (
-          <section className="card" key={prefix} style={{ marginBottom: 14 }} aria-label={title}>
-            <h2>{title}</h2>
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Setting</th><th>Value</th><th>Default</th><th /></tr></thead>
-                <tbody>{rows.map((s) => <Row key={s.key + String(s.updatedAt)} s={s} onSaved={() => void mutate()} />)}</tbody>
-              </table>
-            </div>
-          </section>
-        );
-      })}
+      {data && groupSettings(data.settings).map(({ prefix, title, rows }) => (
+        <section className="card" key={prefix} style={{ marginBottom: 14 }} aria-label={title}>
+          <h2>{title}</h2>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Setting</th><th>Value</th><th>Default</th><th /></tr></thead>
+              <tbody>{rows.map((s) => <Row key={s.key + String(s.updatedAt)} s={s} onSaved={() => void mutate()} />)}</tbody>
+            </table>
+          </div>
+        </section>
+      ))}
       <p className="muted">
-        Emptying a field and saving restores the default. Settings for features that arrive in later phases
-        (Nginx, MongoDB, agent) are not shown.
+        Emptying a field and saving restores the default. Settings the server does not use yet (MongoDB,
+        agent) are not shown.
       </p>
     </>
   );
