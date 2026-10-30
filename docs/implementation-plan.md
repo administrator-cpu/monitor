@@ -18,7 +18,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 to H8, F1, F2 and F3 merged to `main` (PRs #3 to #6). H9 code done as patch 0012 (O1 yes); the switch on the server is `docs/runbook-service.md`. Branch protection and server checks are the owner's steps |
+| 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 and H8 server steps and the open checks in 0.3 |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
@@ -39,13 +39,13 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | # | Check | Phase | Result |
 |---|---|---|---|
 | V1 | One-hour idle run: RSS under 500 MB, CPU under 10% of a core, event loop lag p95 under 50 ms | 1 | Open |
-| V2 | Sessions survive `Restart-Service monitor-api` (`pm2 restart monitor-api` before H9's switch) | 1 | Open |
+| V2 | Sessions survive `Restart-Service monitor-api` (`pm2 restart monitor-api` before H9's switch) | 1 | Passed 2026-10-30: still signed in after `Restart-Service` and after the deploy of `3c3d74b` |
 | V3 | `git --version` works for the account running `monitor-api`; the VPS reaches `api.github.com` | A | Open |
 | V4 | Start on a stopped PM2 process brings it online | C | Open |
 | V5 | A Resend test event reaches `/webhooks/resend` through Nginx, passes the signature and appears on the Email page | B | Open |
 | V6 | An engineer without "Can operate" gets 403 and no buttons; the flag survives a user edit | C | Open |
 | V7 | Production `SQLITE_PATH` and `LOG_ROOT` values, on different volumes | Deploy | Open |
-| V8 | The account `monitor-api` runs as (O2) | Security | Open |
+| V8 | The account `monitor-api` runs as (O2) | Security | Partly: since H9 the service runs as `WIN-2G10A0957M9\Administrator`, and the deploy runner `actions.runner.administrator-cpu-monitor.monitor-server` as `.\Administrator` (2026-10-30). Whether a less privileged account is wanted is O2 |
 | V9 | The Nginx tailer follows log rotation | 6 | Open |
 | V10 | cron-job.org failure notification is on | 5 | Open |
 | V11 | Ports 4111 and 4001 unreachable from outside (port scan) | Public | Open |
@@ -75,6 +75,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | F3 added: Next.js raised to 16.4.3 for three security advisories (patch 0011) |
 | v3 | 2026-10-30 | F2 and F3 merged (PRs #5, #6). O1 decided yes; H9 done as patch 0012 with `docs/runbook-service.md` |
 | v3 | 2026-10-30 | H9 merged (PR #7); service installed on the VPS. F4: stop hang fixed by hand, patch 0013 for the scripts |
+| v3 | 2026-10-30 | F4 merged (PR #8); its deploy was the first through the service (1 min, no forced stop). PM2 entry deleted. H9 and V2 done; V8 partly |
 
 ---
 
@@ -120,7 +121,7 @@ TypeScript strict, pnpm 10, Vitest, Playwright, Prettier. CI on GitHub's Linux r
 
 | # | Input | Needed for | Status |
 |---|---|---|---|
-| O1 | Move `monitor-api` to a Windows service | H9, before M1 | Yes (2026-10-30); switch pending on the server |
+| O1 | Move `monitor-api` to a Windows service | H9, before M1 | Done 2026-10-30 |
 | O2 | Account the backend runs as | V8 | Open |
 | O3 | TOTP per action or Cloudflare Access | Before M5 is switched on | Decision (recommended yes) |
 | O4 | Health URL of the Ubuntu API | M4 | Open |
@@ -240,7 +241,7 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 - [x] Cause, as far as visible: NSSM's stop path with the Ctrl+C method and rotation while running (`AppStopMethodConsole`, `AppRotateOnline 1`). Not reproduced here (no Windows).
 - [x] Fixed on the server by hand: `AppStopMethodSkip 7` (end the process at once, as PM2 on Windows always did) and `AppRotateOnline 0`. `Restart-Service` then took 10 s.
 - [x] Patch 0013: `install-service.ps1` sets both; its default account is `<computer name>\Administrator` (the password dialog refused `.\Administrator`) and it names NSSM 2.24-101 as required. `deploy.ps1` stops with a 30 s limit and then ends `node.exe` and NSSM itself before starting again. Runbook: NSSM install from the Chocolatey package (nssm.cc was down), stop behaviour, section 7 for a hung stop.
-- [ ] Server check: one deploy through the service path completes ("Restarting service 'monitor-api'" in the log, no "did not stop within 30 s").
+- [x] Server check: the deploy of `3c3d74b` (PR #8) went through the service path in 1 min: "Restarting service 'monitor-api'", no "did not stop within 30 s".
 
 #### H9: `monitor-api` outside PM2 (O1 yes, 2026-10-30) (1 day)
 
@@ -248,8 +249,8 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 - [x] `deploy.ps1`: restarts the service with `Restart-Service` when it exists, the PM2 process otherwise; preflight checks the service's NSSM folder; refuses when both exist; the stability check watches the PID of NSSM's `node.exe`; health check and rollback unchanged. A PM2 outage no longer stops a deploy in service mode, and the deploy asks PM2 only while its daemon runs (`pm2.pid`), so it never starts an empty daemon that would hide the outage.
 - [x] Part C self-protection keeps working: no code change needed. New tests: outside PM2 (no own PM2 id) the name is still refused and an ordinary service with PM2 id 0 can be restarted; the old `monitor-api` entry is archived once PM2 stops listing it.
 - [x] Runbook `docs/runbook-service.md` (switch, checks, finish, daily use, going back); backup and phase 1 runbooks updated.
-- [ ] Owner: the switch on the server (runbook sections 1 to 4), then `pm2 delete monitor-api` and `pm2 save`.
-- [ ] V2 rechecked with `Restart-Service monitor-api`; one deploy through the service path.
+- [x] Owner: the switch on the server (2026-10-30): NSSM 2.24-101 in `C:\Tools\nssm`, service installed as `WIN-2G10A0957M9\Administrator`, `pm2 delete monitor-api` and `pm2 save`, the old service entry archived.
+- [x] V2 rechecked with `Restart-Service monitor-api`; one deploy through the service path (see F4).
 
 Done as patch 0012. The Host page's "Monitor health" card now shows **Runs as** (Windows service, PM2 or by hand) and **Deployed commit** (from `.deploy-sha`), because `monitor-api`'s GitHub card goes away with its PM2 entry. CI now parses every `scripts/*.ps1` with PowerShell and refuses PowerShell 7-only operators (the server runs 5.1). Server check: Host page says "Windows service monitor-api" and shows the commit; Overview lists the services; a deploy log shows "Restarting service 'monitor-api'".
 
@@ -447,7 +448,7 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 (fixed) |
 | 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 (code done; offsite task and V19 open) |
 | 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 (configuration in `runbook-nginx.md`; apply and V11 open) |
-| 12 | Monitor shares fate with PM2 | Deployment | H9 (code done; switch on the server pending) |
+| 12 | Monitor shares fate with PM2 | Deployment | H9 (done 2026-10-30) |
 | 13 | Production port is 4111, documents said 4000 | `deploy.ps1` `-Port 4111`, former `.env.example` | Documents v3 |
 | 14 | Webhook codes 503 and 401, documents said 404 and 400 | `routes/webhooks.ts` | Documents v3 |
 | 15 | Email buckets 10 minutes; ids kept 30 days | `email/stats.ts`, `retention.ts` | Documents v3 |
