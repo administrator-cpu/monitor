@@ -24,7 +24,7 @@ Every data structure the backend owns: SQLite tables, log files, in-memory shape
 | `007_events.sql` | `windows_events` | Built |
 | `008_github.sql` | `services.git_repo`, `git_branch`, `git_path`; `service_git` | Built |
 | `009_email.sql` | `email_event_counts`, `email_webhook_seen`, rule `monitor.email_bounce_spike` | Built |
-| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Built (patch 0016, not yet merged); production copy check V25 |
+| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Built (patch 0016, not yet merged); production copy check V25 passed 2026-10-30 (0.61 s, every row kept) |
 | `011_remote_checks.sql` | Probes, host check metrics, three rules | Planned (M4) |
 | `012_agent_commands.sql` | Remote action queue | Planned (M5) |
 
@@ -404,7 +404,7 @@ Not stored: recipients, subjects, bodies, tags, message ids. Both tables are pru
 
 ## 13. Migrations `010` to `012` and Agent Payloads (`010` built, `011` and `012` planned)
 
-Each migration runs in the runner's single transaction with `foreign_keys = ON`. That is safe for the `services` rebuild because no table references `services` by foreign key. The column lists below must be checked against the live schema before merge (`PRAGMA table_info`), and each migration is timed on a copy of the production database.
+Each migration runs in the runner's single transaction with `foreign_keys = ON`. That is safe for the `services` rebuild because no table references `services` by foreign key. The column lists below must be checked against the live schema before merge (`PRAGMA table_info`), and each migration is timed on a copy of the production database with `node apps/backend/scripts/migration-check.mjs <copy>` (plain Node 22.13 or later, nothing installed; `runbook-hosts.md` section 1).
 
 ### 13.1 `010_hosts.sql`: hosts
 

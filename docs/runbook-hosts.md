@@ -1,37 +1,37 @@
 # Runbook: remote hosts on the monitor (phase 11, M1)
 
-What the owner does on the Windows VPS for M1: check migration `010` on a copy of the production database **before merging**, add the Nginx `/agent/` location, and check the Hosts page after the deploy. Nothing is installed on the Ubuntu server in M1; the agent and its compose file arrive with M2 (a later section of this runbook, "Adding a host").
+What the owner does on the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location, and check the Hosts page after the deploy. Nothing is installed on the Ubuntu server in M1; the agent and its compose file arrive with M2 (a later section of this runbook, "Adding a host").
 
-## 1. Before merging: migration `010` on a copy (V25)
+## 1. Before merging: a migration on a copy (V25 for `010`)
 
-Migration `010_hosts.sql` rebuilds `services`, `metrics_host`, `metrics_disk` and `metrics_mongo` with a `host_id` column and adds `hosts`. It runs in one transaction when the new backend starts; a failure stops startup and the deploy rolls back. Test it on a copy first (backend-schema.md section 13):
+**V25 passed on 2026-10-30:** `010` on a copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents) took 0.61 s; every row was kept and services and open incidents were unchanged. The steps below are the same for every later migration (`011` onward).
 
-1. Clone the branch with patch 0016 applied into a separate folder, so the repository the backup task uses (`C:\Apps\command-center`) stays as it is, and install (nothing is built or restarted):
+Migration `010_hosts.sql` rebuilds `services`, `metrics_host`, `metrics_disk` and `metrics_mongo` with a `host_id` column and adds `hosts`. Each migration runs in one transaction when the new backend starts; a failure stops startup and the deploy rolls back. Test it on a copy first (backend-schema.md section 13). The check is `apps\backend\scripts\migration-check.mjs`: it uses Node's built-in `node:sqlite`, so it needs Node 22.13 or later (the VPS has 22.22) and **nothing installed**, no `pnpm install` and no build.
+
+1. Get the branch to be merged into a separate folder, so the repository the backup task uses (`C:\Apps\command-center`) stays as it is:
    ```powershell
    git clone --branch h1/repo-hygiene https://github.com/administrator-cpu/monitor.git C:\Apps\migration-test
-   cd C:\Apps\migration-test
-   pnpm install --frozen-lockfile --filter '@cc/backend...'
-   pnpm --filter @cc/shared build
    ```
-2. Copy the newest nightly backup (H7; a complete, checked copy of the live database) into a test folder:
+   If the owner's patches are not pushed yet, apply them in that clone with `git am` first.
+2. Copy the newest backup into a test folder: the newest nightly file, or, while there is none, the newest deploy copy (both are complete `VACUUM INTO` copies of the live database):
    ```powershell
    New-Item -ItemType Directory -Force E:\monitor-backups\migration-test | Out-Null
-   $latest = Get-ChildItem E:\monitor-backups\monitor-*.db | Sort-Object Name | Select-Object -Last 1
+   $latest = Get-ChildItem E:\monitor-backups\monitor-*.db, E:\monitor-backups\deploy\monitor-*.db |
+     Sort-Object LastWriteTime | Select-Object -Last 1
+   $latest.FullName
    Copy-Item $latest.FullName E:\monitor-backups\migration-test\monitor.db
    ```
    Never point the check at `C:\monitor\data\monitor.db` itself; the script refuses that path.
 3. Run the check on the copy:
    ```powershell
-   pnpm --filter @cc/backend migration:check E:\monitor-backups\migration-test\monitor.db
+   node C:\Apps\migration-test\apps\backend\scripts\migration-check.mjs E:\monitor-backups\migration-test\monitor.db
    ```
-   Expected: `Applied 010_hosts.sql in <time>`, services and open incidents unchanged, `OK: every row kept`. On a 164 MB database shaped like eight days of production data it took 0.06 s; anything under a few seconds is fine.
-4. Record the time and the result as V25 in `implementation-plan.md` section 0.3, then delete both test folders:
+   Expected: `Applied 0NN_<name>.sql in <time>`, services and open incidents unchanged, `OK: every row kept`. Anything under a few seconds is fine. `Nothing to apply` means the copy already has the branch's migrations (for example a backup taken after the merge). Exit code 1 with `FAILED` or `threw` means do not merge; send the output.
+4. Record the time and the result in `implementation-plan.md` section 0.3 (V25 for `010`), then delete both test folders:
    ```powershell
    cd C:\
    Remove-Item -Recurse -Force E:\monitor-backups\migration-test, C:\Apps\migration-test
    ```
-
-If the check prints `FAILED`, do not merge; send the output.
 
 ## 2. Nginx: the `/agent/` location
 

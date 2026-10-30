@@ -38,7 +38,7 @@ The nightly copy is made with `VACUUM INTO` to `monitor-YYYYMMDD.db.partial`, ch
         -User 'Administrator' -Password (Read-Host 'Password for Administrator') -RunLevel Limited
       ```
       Each run adds a line to `E:\monitor-backups\offsite.log` and exits with 1 on failure, which Task Scheduler shows as the last run result. The monitor does not watch this task; look at the log weekly until phase 11 adds a check.
-5. **Check after the first night.** `E:\monitor-backups` holds today's `monitor-YYYYMMDD.db` and no `.partial` file, and the Alerts page has no "Collector stale" for `backup`. The dashboard does not show `maintenance_runs`; the restore test in section 3 reads the file itself.
+5. **Check after the first night.** `E:\monitor-backups` holds today's `monitor-YYYYMMDD.db` and no `.partial` file, and the Alerts page has no "Collector stale" for `backup`. Overview → Backups and certificates shows the last result (`maintenance_runs`), and Host → Collectors the `backup` job's state. If there is no file, section 5.
 
 ## 3. Restore test on a copy (V19)
 
@@ -69,3 +69,26 @@ Start-Service monitor-api                   # before H9's switch: pm2 start moni
 The `-wal` and `-shm` files belong to the old database and must not stay next to the restored one; moving all `monitor.db*` files aside handles that. If the backup is older than the last migration, the backend applies the missing migrations on start. If a migration caused the damage, restore the backup written by the deploy before it (`E:\monitor-backups\deploy`) and roll back the code.
 
 Check: `Invoke-RestMethod http://127.0.0.1:4111/health` answers, you can log in, Services shows the git mapping, Audit shows entries up to the backup time. Keep the moved-aside folder until you are sure.
+
+## 5. No nightly file in `E:\monitor-backups`
+
+Seen on 2026-10-30: only the deploy copies in `E:\monitor-backups\deploy`, no `monitor-YYYYMMDD.db`, although the backend with the `backup` job had been running since 2026-10-29 and the server clock was past 02:30. The job writes the day's file on its first run after 02:30, and every start of the backend runs it at once, so a backend that has been up for ten minutes after 02:30 should have one. The code and its tests do not explain the gap; the server says which case it is. Read these three, in order:
+
+1. **Host page → Collectors, row `backup`.** This is the job's own state since the last start.
+   - No `backup` row: the job is not registered, which happens only when `BACKUP_DIR` is `off`. Go to step 3.
+   - `error` with a message: the message is the cause (for example `backup to E:\monitor-backups failed: EPERM ...` or `SQLITE_...`). `stale` means three failed runs in a row, and Alerts then has "Collector stale" for `backup`.
+   - `ok`: the job ran without error. Then either the file exists in another folder (step 2 shows where) or the clock is before 02:30 and there is nothing due yet.
+2. **Overview → Backups and certificates.** "Last backup" is the last write the job attempted (`maintenance_runs`, job `backup`), with its file path or error. `off (BACKUP_DIR)` means the job is off; `none yet` means it has never tried to write; `failed` shows the error; `ok` with a **File** path elsewhere than `E:\monitor-backups` means `BACKUP_DIR` points elsewhere.
+3. **The startup line.** Log search, source `_monitor`, text `starting command-center backend`: its `config.backupDir` is the folder the running backend uses (`off` when switched off). Compare with `BACKUP_DIR` in `C:\Apps\command-center-deploy\apps\backend\.env`; when that line is absent the default `E:\monitor-backups` applies. Each failed run also writes a `collector failed` line with `collector: backup` and the error.
+
+What to do:
+
+| Finding | Fix |
+|---|---|
+| `backupDir` is `off`, or a folder you did not mean | Remove the `BACKUP_DIR` line from `.env` (or set it to `E:\monitor-backups`), then `Restart-Service monitor-api`. The file appears within a minute of the start. |
+| An access error (`EPERM`, `EACCES`) | The service account (`WIN-2G10A0957M9\Administrator`) needs write access to `E:\monitor-backups`: `icacls E:\monitor-backups`. |
+| `EBUSY` or `EPERM` on the rename of the `.partial` file | Another program holds the new file for a moment (often antivirus scanning it). Exclude `E:\monitor-backups` from real-time scanning, or send the message so the job can retry the rename. |
+| A SQLite error | Send the message with the database size; nothing on disk needs changing. |
+| Anything else, or the Collectors row says `ok` and there is still no file | Send the three readings above. |
+
+After the fix, the first run writes the file at once (the time of day is past 02:30); check that `E:\monitor-backups` holds today's file and no `.partial`, then do the restore test (section 3, V19).

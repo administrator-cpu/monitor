@@ -26,6 +26,7 @@
     "prettier": "^3.9.9"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["bcrypt", "better-sqlite3"]
+    "onlyBuiltDependencies": ["bcrypt"],
+    "ignoredBuiltDependencies": ["better-sqlite3"]
   }
 }

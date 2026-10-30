@@ -315,8 +315,8 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | Read-only `GITHUB_TOKEN`; git run without a shell, fixed arguments, `core.fsmonitor=false` | Built (H5 fixed) |
 | Protected `main` branch (no direct pushes) | Planned (H1) |
 | Off-drive and offsite database backups, tested restore | Built (H7): nightly and pre-deploy on `E:`; offsite task and restore test are owner steps |
-| Nginx `limit_req` on `/webhooks/` and `/api/v1/logs/search` (H8), `/agent/` (M1) | H8 configuration ready in `docs/runbook-nginx.md`, to apply on the server; `/agent/` Planned |
-| Agent ingest with per-host hashed tokens, size and rate limits, version check | Planned (M1) |
+| Nginx `limit_req` on `/webhooks/` and `/api/v1/logs/search` (H8), `/agent/` (M1) | H8 configuration ready in `docs/runbook-nginx.md`, to apply on the server; `/agent/` ready there, to apply with M1 |
+| Agent ingest with per-host hashed tokens, size and rate limits, version check | Built (M1, patch 0016; V25 passed, V26 after the merge) |
 | Docker access only through an allowlisting proxy; no exec, archive, export, inspect or create | Planned (M2) |
 | Remote actions pulled by the agent, expiring after 60 s, refused for the agent's own containers | Planned (M5) |
 | TOTP per action or Cloudflare Access | Recommended before M5 is switched on (O3) |
@@ -330,7 +330,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | 1 to 9 | Windows VPS monitoring | Built |
 | 10 | Parts 0, A, B, C | Built |
 | 10.5 | Audit fixes H1 to H9 | Planned |
-| 11 | Multi-host M1 to M6 | Planned |
+| 11 | Multi-host M1 to M6 | In progress (M1 built, V25 passed) |
 | later | TOTP, more alert channels | Not started |
 
 ---
