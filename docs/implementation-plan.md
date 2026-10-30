@@ -19,7 +19,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
 | 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 and H8 server steps and the open checks in 0.3 |
-| 11 | Multi-host M1 to M6 | In progress | M1 code done (patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. V25 passed 2026-10-30; next the merge, Nginx `/agent/` and V26 (`docs/runbook-hosts.md`). M2 to M6 open |
+| 11 | Multi-host M1 to M6 | In progress | M1 merged (PR #11, patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. V25 passed 2026-10-30; open: the deploy result, Nginx `/agent/` and V26 (`docs/runbook-hosts.md`). M2 to M6 open |
 | later | TOTP, more alert channels | Not started | |
 
 ### 0.2 What happens next
@@ -29,7 +29,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 3. **H2 to H8**, one small pull request each, each checked on the server (0.3).
 4. **Run the open on-host checks** V1 to V18 and record results here.
 5. **Owner inputs for phase 11:** O4 (health path), O5 (backup folder and offsite marker), O6 (Caddy log to file), plus the M2 facts V20 to V24.
-6. **Phase 11** from M1 to M6. M1 code is done (patch 0016) and V25 passed; merge it, then Nginx `/agent/` and V26 (`docs/runbook-hosts.md` sections 2 and 3). M1 and M2 already put the Ubuntu host on the dashboard with alerts.
+6. **Phase 11** from M1 to M6. M1 is merged (PR #11) after V25 passed; next Nginx `/agent/` and V26 (`docs/runbook-hosts.md` sections 2 and 3). M1 and M2 already put the Ubuntu host on the dashboard with alerts.
 7. **Before M5 is switched on:** decide O3 (TOTP per action or Cloudflare Access).
 
 ### 0.3 On-host checks (canonical list)
@@ -82,6 +82,8 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | P1 merged (PR #10). Phase 11 M1 code done as patch 0016; V25 and V26 added. The new settings use the prefix `hosts.` (not `agent.`, which stays hidden for the unread `agent.max_tenants_per_report`) |
 | v3 | 2026-10-30 | V20 and V21 done: network `acs_default`, Mongo service `mongo`, nine `acs` containers; `pid: host` works for a non-root container (patch 0018) |
 | v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
+| v3 | 2026-10-30 | M1 merged (PR #11, `772dd65`), patch 0017 (PR #12, `0528e71`), patch 0018 (PR #13, docs only). Not yet confirmed: the PR #11 and #12 deploys, Nginx `/agent/`, V26 |
+| v3 | 2026-10-30 | Patch 0019: status labels after the merges. `pnpm audit --prod` from 18 advisories to 7: `systeminformation` 5.33.19, `fastify` 5.12.7, `fast-uri` 3.1.9 and 4.2.3, `ip-address` 10.7.5 (through `@fastify/rate-limit`). Left: zod 4 and pm2 7, deferred (section 7). One build allow-list, in the root `package.json` (pnpm ignored the one in `pnpm-workspace.yaml`); esbuild's postinstall stays off, as it always was in practice |
 
 ---
 
@@ -279,7 +281,7 @@ Acceptance for 10.5: every H item merged through a pull request, its test green,
 
 **Starts when:** H1 is done (branch protection), O1 is decided, and a production database copy is available for testing `010`.
 
-#### M1: Hosts, ingest, enrollment (4 to 5 days) [Code done, patch 0016]
+#### M1: Hosts, ingest, enrollment (4 to 5 days) [Merged, PR #11]
 
 - [x] Migration `010_hosts.sql` (schema 13.1 to 13.3). Timed here on a 164 MB database shaped like eight days of production data: 0.06 s, every row kept. On the production copy (V25, 2026-10-30): 0.61 s on 13.8 MB, every row, service and open incident kept. Existing tests pass; four changed only where they name the new schema (rule count 30, migration list, `source_key`, `host_id` in a rolled-up row).
 - [x] `ServicesRepo` keyed by `(host_id, source_key)`; DTOs gain `hostId`, `kind`, `sourceKey` (`pm2Name` kept). `list()` and `getByPm2Name()` mean host 1 unless asked otherwise, so PM2, Nginx, GitHub and the log folders see exactly what they saw before. PM2 actions refuse services on other hosts.
@@ -435,6 +437,8 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | Database lost with `C:` | H7 |
 | Tenant resolvers not written | O7 |
 | Estimates optimistic | Actuals recorded from now |
+| `zod` 3 advisory: memory use while validating oversized constrained collections (fixed only in zod 4.6.6) | Deferred (patch 0019): zod 4 changes every schema in `@cc/shared`. The exposed input is `/agent/v1`, where every array has `.max()` and bodies are capped while inflating (512 KB for metrics); `mongo` is an open `z.record(z.unknown())` inside that cap, to be bounded when M4 defines it |
+| `pm2` 6 advisories: pm2 itself (low), `js-yaml` (pm2's config-file parser) and `basic-ftp` (through `@pm2/agent` and `proxy-agent`), CPU denial of service | Deferred (patch 0019): the backend calls only `connect`, `list`, `restart`, `stop` and `launchBus`, which parse no YAML and load no PM2 agent or proxy; the only fix is pm2 7, a major version. Revisit on its own patch |
 | Phase 11 risks | Listed under phase 11 |
 
 ---
