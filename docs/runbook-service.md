@@ -4,6 +4,8 @@ Decision O1 (2026-10-30): the backend runs as the Windows service `monitor-api` 
 
 The service runs under the account that owns the PM2 daemon (Administrator) with `PM2_HOME` set, so it reads the same PM2 daemon as before. It reads the same `.env` from the same deploy folder. The database, logs and port (4111) do not change.
 
+**Status: done on the VPS on 2026-10-30** (service account `WIN-2G10A0957M9\Administrator`, NSSM 2.24-101 in `C:\Tools\nssm`, PM2 entry deleted, V2 passed). Sections 1 to 4 stay as the record and for a reinstall.
+
 `scripts/deploy.ps1` finds the service by name: once `monitor-api` exists as a service, deploys restart the service; until then they restart the PM2 process as before. Merging H9 changes nothing on the server until you do step 2.
 
 ## 1. Before you start

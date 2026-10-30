@@ -342,7 +342,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 
 | # | Item | Recommendation |
 |---|---|---|
-| O1 | Run `monitor-api` as a Windows service instead of inside PM2, so a PM2 failure no longer takes the monitor down | Yes (2026-10-30). Code done in H9; the switch on the server is `docs/runbook-service.md` |
+| O1 | Run `monitor-api` as a Windows service instead of inside PM2, so a PM2 failure no longer takes the monitor down | Done 2026-10-30 (H9, `docs/runbook-service.md`) |
 | O2 | The account the backend runs as | Confirm it is the Administrator account (deploy script default); keep, since PM2 runs there, and record it |
 | O3 | TOTP per action or Cloudflare Access before remote actions | Yes, one of them before M5 is switched on |
 | O4 | Health path on `tr069-api.thediv.in` | Owner to supply |

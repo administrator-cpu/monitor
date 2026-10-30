@@ -85,7 +85,7 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 | Passwords | `bcrypt` cost 12, fallback `bcryptjs` | Built |
 | Own logs | `pino`, into the log pipeline as `_monitor` | Built |
 | Frontend | Next.js 16 (16.4.3 or later, F3), React 19, uPlot | Built |
-| Backend process manager | Windows service `monitor-api` (NSSM), outside PM2 (H9) | Code built; switch on the server pending (see below) |
+| Backend process manager | Windows service `monitor-api` (NSSM 2.24-101), outside PM2 (H9) | Built; in production since 2026-10-30 (see below) |
 | Packages | pnpm 10 workspace | Built |
 
 **Process manager.** v1 chose NSSM so a PM2 failure stays visible; production was first set up inside PM2, where the monitor died with the PM2 daemon (and with `pm2 kill` or `pm2 delete all`) and only the watchdog noticed. **Decision O1 (yes, 2026-10-30), H9:** the backend runs as the Windows service `monitor-api`, installed by `scripts/install-service.ps1` with NSSM under the account that owns PM2 and with `PM2_HOME` set, so it still reads the same PM2 daemon. The PM2 client only probes the daemon's socket and never starts a daemon of its own. NSSM restarts the app 5 s after an exit; Windows restarts NSSM itself on failure. A stop ends `node.exe` at once (`AppStopMethodSkip 7`), as a PM2 restart on Windows always did: NSSM's Ctrl+C stop left the service in `StopPending` for minutes on 2026-10-30 (F4). Output goes to `E:\monitor-service-logs\service.log`, rotated over 10 MB at start, not while running. `deploy.ps1` ends the service's processes itself if a stop takes over 30 s. `deploy.ps1` restarts the service when it exists and the PM2 process otherwise, and refuses when both exist. The switch on the server is `docs/runbook-service.md`.
@@ -386,7 +386,7 @@ Secrets (`CC_ENROLL_TOKEN`, `CC_MONGO_URI`, `CC_RELAY_TOKEN`) live in an env fil
 
 | Part | Where | How |
 |---|---|---|
-| Backend | Windows VPS, Windows service `monitor-api` (H9; PM2 until the switch) | Push to `main` touching backend paths → CI on GitHub's Linux runner → `scripts/deploy.ps1` on the self-hosted runner |
+| Backend | Windows VPS, Windows service `monitor-api` (H9, since 2026-10-30) | Push to `main` touching backend paths → CI on GitHub's Linux runner → `scripts/deploy.ps1` on the self-hosted runner |
 | Frontend | Vercel | Git integration |
 | Watchdog | Render | `apps/watchdog/render.yaml` |
 | Agent images | GHCR | [Planned] CI job on `main` builds `cc-node-agent` and `cc-docker-proxy`, tagged by commit and `latest` |
