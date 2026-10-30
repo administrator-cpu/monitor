@@ -228,7 +228,7 @@ test('the host switcher shows the demo Ubuntu host, reported by the real node ag
   await pick.selectOption({ label: 'ubuntu-acs' });
   await expect(page).toHaveURL(/\/host\?host=\d+$/);
   await expect(page.getByRole('heading', { name: 'Host · ubuntu-acs', level: 1 })).toBeVisible();
-  await expect(page.getByTestId('agent-info')).toContainText('0.3.0', { timeout: 30_000 });
+  await expect(page.getByTestId('agent-info')).toContainText('0.3.1', { timeout: 30_000 });
   await expect(page.getByTestId('agent-host-details')).toContainText('Last report');
   await expect(page.getByRole('region', { name: 'Disks' })).toContainText('/');
   await expect(page.getByRole('region', { name: 'Agent' })).toContainText('docker');

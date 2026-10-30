@@ -1,6 +1,6 @@
 {
   "name": "@cc/node-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "cc-node-agent: reports a Linux host and its compose services to the Command Center monitor (phase 11, TRD 14). No runtime dependencies.",
   "main": "dist/index.js",

@@ -304,6 +304,50 @@ describe('LogShipper', () => {
     expect(h.sent[1]!.batches[0]!.lines.map((l) => l.msg)).toEqual(['l1', 'l2']);
   });
 
+  it('a container switched back on ships from that moment, never what it wrote while excluded', async () => {
+    let excluded: string[] = [];
+    h = harness({ post: () => ({ kind: 'ok', body: { excluded, linesPerS: 200 } }) });
+    await h.shipper.init();
+    h.shipper.start();
+    const list = [
+      { id: 'a'.repeat(64), key: 'acs/api', running: true },
+      { id: 'b'.repeat(64), key: 'acs/cpe-sim', running: true },
+    ];
+    h.shipper.sync(list);
+    await h.tick();
+    h.streams.get('b'.repeat(64))!.push(frame(1, `${ts(T0, 1)} before\n`));
+    await h.tick();
+    await h.shipper.flush();
+    // The admin excludes cpe-sim; the next answer says so and its stream is stopped.
+    excluded = ['acs/cpe-sim'];
+    h.clock.t += 1000;
+    h.streams.get('a'.repeat(64))!.push(frame(1, `${ts(h.clock.t, 1)} api\n`));
+    await h.tick();
+    await h.shipper.flush();
+    expect(h.streams.get('b'.repeat(64))!.aborted).toBe(true);
+    // 30 s go by with cpe-sim excluded (rounds of the container list), then it is switched back on.
+    for (let i = 0; i < 3; i++) {
+      h.clock.t += 10_000;
+      h.shipper.sync(list);
+    }
+    excluded = [];
+    h.clock.t += 500;
+    h.shipper.onAnswer({ excluded, linesPerS: 200 });
+    const onAt = h.clock.t;
+    h.clock.t += 2_000;
+    h.shipper.sync(list);
+    await h.tick();
+    const s = h.streams.get('b'.repeat(64))!;
+    expect(s.aborted).toBe(false);
+    const [sec, nanos] = s.since.split('.').map(Number);
+    expect(sec! * 1000 + Math.floor(nanos! / 1e6)).toBe(onAt);
+    // Docker sends the whole second of `since`: a line written while excluded, in that second, is not passed on.
+    s.push(frame(1, `${ts(onAt - 100)} while excluded\n${ts(onAt + 1000, 5)} after\n`));
+    await h.tick();
+    await h.shipper.flush();
+    expect(h.lines(h.sent)).toEqual(['acs/cpe-sim:before', 'acs/api:api', 'acs/cpe-sim:after']);
+  });
+
   it('a limit set on the host wins over the monitor’s', async () => {
     const s = new LogShipper({
       docker: { logs: async () => ({ async *[Symbol.asyncIterator]() {} }) },

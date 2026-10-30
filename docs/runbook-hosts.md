@@ -1,6 +1,6 @@
 # Runbook: remote hosts on the monitor (phase 11, M1 to M3)
 
-What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: migration `011` (V27, applied by the PR #15 deploy 2026-10-30), then the agent on the Ubuntu server (section 5, "Adding a host"; done on `acs-prod` 2026-10-30, V28 passed). For M3: merge and deploy patch 0026, then agent 0.3.0 on the server and V29 (section 6).
+What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: migration `011` (V27, applied by the PR #15 deploy 2026-10-30), then the agent on the Ubuntu server (section 5, "Adding a host"; done on `acs-prod` 2026-10-30, V28 passed). For M3: patch 0026 (merged as PR #18, deployed 2026-10-31), agent 0.3.0 on the server and V29 (section 6, passed 2026-10-31 except the day-long line rate), then agent 0.3.1 from patch 0027 (6.3).
 
 ## 1. Before merging: a migration on a copy (V25 for `010`)
 
@@ -197,11 +197,15 @@ Expected: `starting cc-node-agent` with `"version":"0.3.0"` and `"logs":"on, buf
    sudo docker network connect cc-agent_cc-egress cc-agent-cc-node-agent-1
    ```
    Within a minute "Host silent" resolves; Log search for `v29 outage marker` on `cpe-sim · ubuntu-acs`, Last hour, finds it at the time it was written. If `disconnect` names a different network or container, `sudo docker network ls` and `sudo docker ps` show the names.
-4. **An excluded container ships nothing.** On the `caddy` page (admin): **Stop shipping this container's logs**. Within a second the agent logs `the monitor excluded services from log shipping`:
+4. **An excluded container ships nothing.** Use `cpe-sim`, where a test line can be written (`caddy` writes nothing to stdout, so excluding it proves nothing). On the `cpe-sim` page (admin): **Stop shipping this container's logs**. Within a second the agent logs `the monitor excluded services from log shipping`:
    ```bash
-   sudo docker compose logs --tail 5 cc-node-agent
+   sudo docker compose logs --tail 3 cc-node-agent
    ```
-   A minute later, Log search on `caddy · ubuntu-acs`, Last 15 minutes: nothing after the switch. Switch it on again, or leave it off if Caddy's own lines are not wanted.
+   Then write a line while it is excluded:
+   ```bash
+   sudo docker exec acs-cpe-sim-1 sh -c 'echo "v29 excluded marker" > /proc/1/fd/1'
+   ```
+   Wait 30 seconds, then switch shipping on again (**Ship this container's logs**). From agent 0.3.1 the agent logs `the monitor resumed log shipping, from now on`, and the marker never appears on the page or in Log search. (With 0.3.0 it arrived after the switch back on: fixed in 0.3.1.)
 5. **No Caddy access record on the monitor.** Log search, every `· ubuntu-acs` service, Last 24 hours, text `http.log.access`: no match. If the agent's log says `dropped Caddy access records from container stdout`, Caddy still writes access logs to stdout (O6, V23).
 6. **Budgets.** `sudo docker stats --no-stream` (agent under 150 MB, proxy under 20 MB).
 7. **The GenieACS line rate, a day later.** On the `genieacs-cwmp` page, the line under the Logs card: lines received and dropped since the monitor started. Lines divided by the seconds since then is the rate to record against TRD 14.12. The disk it takes, in PowerShell on the Windows VPS:
@@ -211,3 +215,22 @@ Expected: `starting cc-node-agent` with `"version":"0.3.0"` and `"logs":"on, buf
 8. Record the date and results as V29 in `implementation-plan.md` section 0.3.
 
 If something goes wrong, `CC_LOGS=off` in `/etc/cc-agent/agent.env` and `sudo docker compose up -d --force-recreate cc-node-agent` stops log shipping and keeps everything else; or pin the previous agent with `CC_TAG=0.2.1` in `~/cc-agent/.env` and `sudo docker compose up -d`.
+
+### 6.3 Agent 0.3.1 (patch 0027)
+
+Agent only: no backend path changes, so merging does not deploy the monitor; the Images workflow publishes `0.3.1`. After the merge and a green Images workflow, on `acs-prod`, one command at a time:
+
+```bash
+cd ~/cc-agent
+```
+```bash
+sudo docker compose pull
+```
+```bash
+sudo docker compose up -d
+```
+```bash
+sudo docker compose logs --tail 5 cc-node-agent
+```
+
+Expected: `"version":"0.3.1"`. Then step 4 of 6.2 again with `cpe-sim`: the excluded marker must not arrive after shipping is switched back on. Restarting the agent keeps every position, so nothing is lost or repeated by the update.
