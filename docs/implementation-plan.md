@@ -76,6 +76,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | F2 and F3 merged (PRs #5, #6). O1 decided yes; H9 done as patch 0012 with `docs/runbook-service.md` |
 | v3 | 2026-10-30 | H9 merged (PR #7); service installed on the VPS. F4: stop hang fixed by hand, patch 0013 for the scripts |
 | v3 | 2026-10-30 | F4 merged (PR #8); its deploy was the first through the service (1 min, no forced stop). PM2 entry deleted. H9 and V2 done; V8 partly |
+| v3 | 2026-10-30 | P1: Overview summary (monitor card, alerts, backups and certificates, GitHub and email), patch 0015 |
 
 ---
 
@@ -242,6 +243,15 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 - [x] Fixed on the server by hand: `AppStopMethodSkip 7` (end the process at once, as PM2 on Windows always did) and `AppRotateOnline 0`. `Restart-Service` then took 10 s.
 - [x] Patch 0013: `install-service.ps1` sets both; its default account is `<computer name>\Administrator` (the password dialog refused `.\Administrator`) and it names NSSM 2.24-101 as required. `deploy.ps1` stops with a 30 s limit and then ends `node.exe` and NSSM itself before starting again. Runbook: NSSM install from the Chocolatey package (nssm.cc was down), stop behaviour, section 7 for a hung stop.
 - [x] Server check: the deploy of `3c3d74b` (PR #8) went through the service path in 1 min: "Restarting service 'monitor-api'", no "did not stop within 30 s".
+
+#### P1: Overview summary (owner request, 2026-10-30)
+
+- [x] The monitor itself as the first card among the services on the Overview (live, through the WebSocket message's new `monitor` field): online, how it runs, CPU, memory, uptime, deployed commit; links to the Host page.
+- [x] `GET /overview/summary` (`src/summary.ts`) and three cards: Alerts (by severity, five newest), Backups and certificates (last backup run, nearest certificate expiry, failed checks), GitHub and email (in sync, behind, not checked; Resend events of 24 hours). Polled every 30 s and when the open-alert count changes.
+- [x] 9 backend tests (`summary.test.ts`), one end-to-end test. No migration.
+- [ ] Server check: the Overview shows the monitor card ("online · Windows service", commit) and the three cards with real values (last backup ok, certificate days, GitHub counts).
+
+Done as patch 0015.
 
 #### H9: `monitor-api` outside PM2 (O1 yes, 2026-10-30) (1 day)
 

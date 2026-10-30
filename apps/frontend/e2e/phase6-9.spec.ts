@@ -32,6 +32,23 @@ test('the overview shows gateway, database and application totals', async () => 
   await expect(page.getByTestId('ov-sockets')).toHaveText('47', { timeout: 30_000 }); // 30 + 12 + 5 sockets across three tenants
 });
 
+test('the overview shows the monitor itself and the summary row', async () => {
+  const page = shared;
+  await page.goto('/');
+  const monitor = page.getByTestId('service-grid').getByTestId('svc-monitor');
+  await expect(monitor).toContainText('Command Center (this monitor)', { timeout: 30_000 });
+  await expect(page.getByTestId('monitor-tile-runs')).toHaveText('online · started by hand');
+  const row = page.getByTestId('summary-row');
+  for (const name of ['Alerts summary', 'Backups and certificates', 'GitHub and email']) {
+    await expect(row.getByRole('region', { name })).toBeVisible();
+  }
+  // The test backend runs without BACKUP_DIR (off by default outside Windows).
+  await expect(page.getByTestId('backup-status')).toHaveText('off (BACKUP_DIR)');
+  await expect(page.getByTestId('github-status')).toBeVisible();
+  await monitor.click();
+  await expect(page.getByRole('heading', { name: 'Host' })).toBeVisible();
+});
+
 test('the Nginx page attributes traffic to the service and lists the rest as unattributed', async () => {
   const page = shared;
   await page.goto('/');

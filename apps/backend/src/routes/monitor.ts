@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import type { HostResponse, OverviewResponse, RangeLimitsResponse } from '@cc/shared';
+import type { HostResponse, OverviewResponse, OverviewSummary, RangeLimitsResponse } from '@cc/shared';
 import type { AppContext } from '../context';
 import { requireUser } from '../guard';
 import { rangeLimits } from '../limits';
+import { buildOverviewSummary } from '../summary';
 
 export function monitorRoutes(app: FastifyInstance, ctx: AppContext): void {
   const user = { preHandler: requireUser(ctx) };
@@ -16,6 +17,9 @@ export function monitorRoutes(app: FastifyInstance, ctx: AppContext): void {
     logs: ctx.logs.status(),
     openIncidents: ctx.alerts.openCount(),
   }));
+
+  // Alerts by severity, last backup, nearest certificate, GitHub and email; the page polls it every 30 s.
+  app.get('/overview/summary', user, async (): Promise<OverviewSummary> => buildOverviewSummary(ctx));
 
   // The longest history and log search ranges, so the range pickers offer nothing the server would refuse.
   app.get('/limits', user, async (): Promise<RangeLimitsResponse> => rangeLimits(ctx.settings));

@@ -360,6 +360,8 @@ export interface LiveMessage {
   collectors: CollectorStatus[];
   logs: LogStatus | null;
   openIncidents: number;
+  /** The monitor's own process (Overview "Monitor" card). Absent from older backends. */
+  monitor?: MonitorHealth;
 }
 
 export type LogStream = 'out' | 'err' | 'app' | 'access' | 'error';
@@ -429,6 +431,55 @@ export function groupSettings<T extends Pick<SettingEntry, 'key' | 'type'>>(
   const rest = shown.filter((s) => !SETTING_GROUPS.some(([p]) => s.key.startsWith(p)));
   out.push({ prefix: '', title: OTHER_SETTINGS_TITLE, rows: rest });
   return out.filter((g) => g.rows.length > 0);
+}
+
+/** GET /overview/summary: the slower-changing parts of the Overview, polled every 30 s. */
+export interface OverviewSummary {
+  generatedAt: number;
+  alerts: {
+    critical: number;
+    warning: number;
+    info: number;
+    /** Newest firing incidents first, at most 5. */
+    newest: IncidentDto[];
+  };
+  backup: {
+    /** False when BACKUP_DIR is off. */
+    enabled: boolean;
+    lastRunAt: number | null;
+    status: 'ok' | 'error' | null;
+    file: string | null;
+    bytes: number | null;
+    error: string | null;
+  };
+  tls: {
+    hosts: number;
+    /** Hosts whose last check failed. */
+    errors: number;
+    /** The certificate that expires first (checked hosts only). */
+    soonest: { host: string; notAfter: number; daysLeft: number } | null;
+  };
+  github: {
+    tokenSet: boolean;
+    /** Services with a repository set. */
+    mapped: number;
+    inSync: number;
+    behind: { serviceId: number; name: string; behindBy: number }[];
+    /** Mapped services whose last check failed, or not checked yet. */
+    problems: number;
+  };
+  email: {
+    /** Start of the window (last 24 hours). */
+    since: number;
+    webhookConfigured: boolean;
+    sent: number;
+    delivered: number;
+    delayed: number;
+    bounced: number;
+    complained: number;
+    failed: number;
+    lastEventAt: number | null;
+  };
 }
 
 export interface ApiErrorBody {

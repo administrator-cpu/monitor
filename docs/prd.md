@@ -173,6 +173,15 @@ Each layer applies per host. The table in 16.4 shows the source on each host.
 - **Privacy rule for gateway logs (decided in v3):** request paths, query strings, client addresses and headers are never stored or shipped, on any host. Nginx already logs without them; the Ubuntu agent drops them from Caddy records before anything leaves the host.
 - **"Top paths" and "top client IPs" are removed** from the Nginx page (decided in v3). With the privacy log format all requests landed under `/` and the IP list stayed empty; the page now says paths and addresses are not logged (audit item H4, fixed).
 
+### 4.1a Overview summary (Built, 2026-10-30)
+
+The Overview shows everything at a glance. Besides the host, gateway, MongoDB, application, disk, log and collector cards it has:
+
+- **The monitor itself** as the first card among the services (it left PM2 with H9): online, how it runs (Windows service), CPU, memory, uptime, deployed commit; links to the Host page.
+- **Alerts:** firing alerts by severity and the five newest, with links to the Alerts page.
+- **Backups and certificates:** the last nightly backup (ok or failed, when, file and size, or "off") and the TLS certificate that expires first, with the number of hosts checked and failed checks.
+- **GitHub and email:** how many mapped services are up to date, which are behind and by how much, failed checks; Resend events of the last 24 hours (sent, delivered, bounced, complaints, failed) and the last event.
+
 ### 4.2 Layer 2: Services
 
 A service is a PM2 process (Windows) or a Docker Compose service (Ubuntu).

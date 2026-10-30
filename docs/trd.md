@@ -210,7 +210,7 @@ All routes under `/api/v1` are JSON and session-authenticated; state-changing re
 | Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password` |
 | Users (admin) | `GET/POST /users`, `PATCH /users/:id` (includes `canOperate`), `POST /users/:id/reset-password`, `POST /users/:id/revoke-sessions` |
 | Admin | `GET /audit`, `GET/PATCH /settings` |
-| Live views | `GET /overview`, `GET /host`, `GET /nginx`, `GET /mongo`, `GET /mongo/slow-queries`, `GET /events/windows`, `GET /limits` (longest history and log search ranges) |
+| Live views | `GET /overview`, `GET /overview/summary` (alerts by severity, last backup, nearest certificate, GitHub, email; the page polls it every 30 s and when the open-alert count changes), `GET /host`, `GET /nginx`, `GET /mongo`, `GET /mongo/slow-queries`, `GET /events/windows`, `GET /limits` (longest history and log search ranges) |
 | Services | `GET /services`, `GET /services/:id`, `PATCH /services/:id` (admin; includes git mapping), `POST /services/:id/actions` (operate, 20/min), `GET /services/:id/git`, `POST /services/:id/git/refresh` (admin, 10/min), `GET /services/:id/tenants`, `GET /services/:id/tenants/history` |
 | History | `GET /history/host`, `/history/services/:id`, `/history/nginx`, `/history/mongo` (at most `retention.metrics_days`, H3) |
 | Alerts | incidents, rules (admin edits), mutes (admin), own subscriptions, status, test email |

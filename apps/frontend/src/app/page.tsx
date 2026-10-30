@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import type { CollectorStatus, DiskState, LogStatus, ServiceLive } from '@cc/shared';
+import { MonitorTile, SummaryRow } from '@/components/OverviewSummary';
 import { processLabel, StatusDot } from '@/components/ServiceStatus';
 import { PageHead, Shell } from '@/components/Shell';
 import { bytes, duration, pct, rate, usageLevel, volumeReasonText } from '@/lib/format';
@@ -75,17 +77,16 @@ function DiskRow({ d, stale }: { d: DiskState; stale: boolean }) {
   );
 }
 
-function Services({ list, stale }: { list: ServiceLive[]; stale: boolean }) {
-  if (list.length === 0) {
-    return (
-      <div className="empty">
-        No PM2 services yet. They appear here by themselves once PM2 lists a process.
-      </div>
-    );
-  }
+function Services({ list, stale, monitor }: { list: ServiceLive[]; stale: boolean; monitor: ReactNode }) {
   const sorted = [...list].sort((a, b) => a.process.name.localeCompare(b.process.name));
   return (
     <div className="svc-grid" data-testid="service-grid">
+      {monitor}
+      {sorted.length === 0 && (
+        <div className="empty">
+          No PM2 services yet. They appear here by themselves once PM2 lists a process.
+        </div>
+      )}
       {sorted.map(({ process: p }) => (
         <Link key={p.serviceId} href={`/services/${p.serviceId}`} className="svc" data-testid={`svc-${p.pm2Name}`}>
           <div className="name">
@@ -298,6 +299,8 @@ function Overview() {
             </div>
           )}
 
+          <SummaryRow openIncidents={live?.openIncidents} />
+
           <div className="grid two" style={{ marginTop: 14 }}>
             <section className="card" aria-label="Disks">
               <h2>Disks</h2>
@@ -318,7 +321,11 @@ function Overview() {
                 All services
               </Link>
             </div>
-            <Services list={live?.services ?? []} stale={!fresh || isStale(collectors, 'pm2')} />
+            <Services
+              list={live?.services ?? []}
+              stale={!fresh || isStale(collectors, 'pm2')}
+              monitor={<MonitorTile m={live?.monitor} stale={!fresh} />}
+            />
           </section>
         </>
       )}
