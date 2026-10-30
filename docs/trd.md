@@ -127,7 +127,7 @@ How the system in the PRD is built: technology, processes, collection, API, secu
 - One backend Node process: API, WebSocket, scheduler, alert engine, webhook, ingest listener.
 - The `@cc/agent` ingest listener is a separate HTTP server on `127.0.0.1:4001`.
 - Worker threads: PM2 access, log search. gzip is streaming zlib on the main thread (README deviation).
-- Child processes: PowerShell (Event Log, pending reboot, disk I/O) and `git`, each with a timeout and fixed arguments.
+- Child processes: PowerShell (Event Log, pending reboot, disk I/O, disk sizes, swap and network) and `git`, each with a timeout and fixed arguments. PowerShell scripts run one at a time (`PowerShellRunner`, `src/collectors/powershell.ts`); each call's timeout counts from the call, so time spent waiting behind other scripts is included and a call that cannot start in time is refused ("PowerShell busy"); a call settles at its timeout even if the process has not exited, the process tree is then killed with `taskkill /T /F`, and while two timed-out processes are still alive no new script starts (F5).
 - SQLite: one writer, batched every 10 s. Migrations run at startup, one transaction per file, with `foreign_keys = ON`; a failing migration stops startup.
 - Runs as the account that owns PM2; the deploy script's default `PM2_HOME` is `C:\Users\Administrator\.pm2` [Verify, O2].
 
