@@ -8,7 +8,18 @@ The service runs under the account that owns the PM2 daemon (Administrator) with
 
 ## 1. Before you start
 
-1. **NSSM.** `nssm version` in PowerShell. If it is missing: download NSSM 2.24 from nssm.cc, copy `win64\nssm.exe` to `C:\Tools\nssm\`, and add that folder to the machine `PATH`.
+1. **NSSM 2.24-101 or newer.** Run `nssm` with no arguments; the first lines show the version. Plain 2.24 has a known start problem on Windows 10 1703 / Server 2016 and newer (nssm.cc download page), so use the pre-release 2.24-101-g897c7ad. Into `C:\Tools\nssm\`, then add that folder to the machine `PATH` and open a new PowerShell:
+   ```powershell
+   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+   New-Item -ItemType Directory -Force C:\Tools\nssm | Out-Null
+   # nssm.cc is often unavailable; the Chocolatey package carries the same zip inside it.
+   Invoke-WebRequest https://community.chocolatey.org/api/v2/package/nssm/2.24.101.20180116 -OutFile $env:TEMP\nssm-pkg.zip -UseBasicParsing
+   Expand-Archive $env:TEMP\nssm-pkg.zip -DestinationPath $env:TEMP\nssm-pkg -Force
+   Expand-Archive $env:TEMP\nssm-pkg\tools\nssm-2.24-101-g897c7ad.zip -DestinationPath $env:TEMP\nssm101 -Force
+   Copy-Item $env:TEMP\nssm101\nssm-2.24-101-g897c7ad\win64\nssm.exe C:\Tools\nssm\nssm.exe -Force
+   [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','Machine') + ';C:\Tools\nssm', 'Machine')
+   ```
+   Done on the VPS on 2026-10-30.
 2. **The runner account can restart services.** Deploys run as the GitHub runner's account. Check which one:
    ```powershell
    Get-CimInstance Win32_Service -Filter "Name LIKE 'actions.runner%'" | Select-Object Name, StartName
@@ -30,9 +41,11 @@ pm2 stop monitor-api
 .\scripts\install-service.ps1
 ```
 
-The script asks for the Administrator password (the service runs as that account). It refuses to run while anything listens on port 4111, so PM2's copy must be stopped first. It installs the service with automatic start, restart on exit after 5 s, a clean stop (Ctrl+C, 10 s) and its early-start output in `E:\monitor-service-logs\service.log`, then starts it and waits for `/health`. If `/health` does not answer it prints the last lines of that log and how to go back (section 6).
+The script asks for the Administrator password (the service runs as that account). It refuses to run while anything listens on port 4111, so PM2's copy must be stopped first. It installs the service with automatic start, restart on exit after 5 s, an immediate stop (see below) and its output in `E:\monitor-service-logs\service.log` (rotated over 10 MB when the service starts), then starts it and waits for `/health`. If `/health` does not answer it prints the last lines of that log and how to go back (section 6).
 
-Defaults: `-ServiceName monitor-api`, `-AppDir C:\Apps\command-center-deploy\apps\backend`, `-ServiceAccount .\Administrator`, `-Pm2Home C:\Users\Administrator\.pm2`, `-Port 4111`. Pass a parameter only if yours differs.
+Defaults: `-ServiceName monitor-api`, `-AppDir C:\Apps\command-center-deploy\apps\backend`, `-ServiceAccount <computer name>\Administrator` (the password dialog refuses `.\Administrator`), `-Pm2Home C:\Users\Administrator\.pm2`, `-Port 4111`. Pass a parameter only if yours differs.
+
+**Stop behaviour.** A stop ends `node.exe` at once (`AppStopMethodSkip 7`), as a PM2 restart on Windows always did; SQLite's journal keeps the database consistent. The first install on 2026-10-30 used NSSM's Ctrl+C stop with rotation while running, and a `Restart-Service` left the service in `StopPending` for minutes after node had exited. On that server both settings were then changed by hand (`nssm set monitor-api AppStopMethodSkip 7`, `nssm set monitor-api AppRotateOnline 0`), which matches the install script now; no reinstall is needed. `deploy.ps1` also no longer waits without limit: after 30 s it ends the service's processes itself (section 7).
 
 ## 3. Checks
 
@@ -85,3 +98,19 @@ pm2 save
 ```
 
 Deploys go back to PM2 by themselves once the service is gone.
+
+## 7. If a stop hangs (`StopPending`)
+
+`Get-Service monitor-api` stays at `StopPending` and `/health` does not answer. End the processes and start again (the database is safe):
+
+```powershell
+$svcPid = (Get-CimInstance Win32_Service -Filter "Name='monitor-api'").ProcessId
+Get-CimInstance Win32_Process -Filter "ParentProcessId=$svcPid" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Stop-Process -Id $svcPid -Force
+Start-Sleep -Seconds 10
+Get-Service monitor-api          # Windows may start it again by itself; if Stopped:
+Start-Service monitor-api
+curl.exe -s http://127.0.0.1:4111/health
+```
+
+Then check the stop settings: `nssm get monitor-api AppStopMethodSkip` must be `7` and `nssm get monitor-api AppRotateOnline` must be `0`. NSSM's own steps are in the Application event log (source `nssm`).

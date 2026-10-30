@@ -36,6 +36,8 @@ param(
   [string]$Pm2Home = 'C:\Users\Administrator\.pm2',
   [int]$Port = 4111,
   [int]$HealthTimeoutSec = 45,
+  # How long a service stop may take before the deploy ends the processes itself.
+  [int]$StopTimeoutSec = 30,
   [int]$KeepBackups = 10
 )
 
@@ -124,10 +126,40 @@ function Get-BackendState {
   return [pscustomobject]@{ Running = ($p.Status -eq 'online'); Marker = $p.RestartTime; Status = $p.Status }
 }
 
+# Stop, then start. Restart-Service waits without limit: on 2026-10-30 a stop hung in
+# STOP_PENDING for minutes after node had exited. After $StopTimeoutSec s this ends node.exe and
+# NSSM itself; Windows may then start the service by itself (failure action), which is fine.
+function Restart-BackendService {
+  Write-Step "Restarting service '$ServiceName'"
+  if ((Get-Service -Name $ServiceName).Status -ne 'Stopped') {
+    Stop-Service -Name $ServiceName -Force -NoWait -ErrorAction Stop
+  }
+  $deadline = (Get-Date).AddSeconds($StopTimeoutSec)
+  while ((Get-Service -Name $ServiceName).Status -ne 'Stopped' -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+
+  if ((Get-Service -Name $ServiceName).Status -ne 'Stopped') {
+    Write-Host "   The service did not stop within $StopTimeoutSec s; ending its processes."
+    $svc = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'"
+    if ($svc -and $svc.ProcessId) {
+      Get-CimInstance Win32_Process -Filter "ParentProcessId=$($svc.ProcessId)" |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+      Stop-Process -Id $svc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((Get-Service -Name $ServiceName).Status -eq 'StopPending' -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+  }
+
+  $status = [string](Get-Service -Name $ServiceName).Status
+  if ($status -eq 'Stopped') {
+    Start-Service -Name $ServiceName -ErrorAction Stop
+  } elseif ($status -ne 'Running' -and $status -ne 'StartPending') {
+    throw "Service '$ServiceName' is '$status' and could not be restarted."
+  }
+}
+
 function Restart-Backend {
   if ($script:mode -eq 'service') {
-    Write-Step "Restarting service '$ServiceName'"
-    Restart-Service -Name $ServiceName -Force -ErrorAction Stop
+    Restart-BackendService
   } else {
     Invoke-Native "Restarting PM2 process '$PmName'" { pm2 restart $PmName }
   }

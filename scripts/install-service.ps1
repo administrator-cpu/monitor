@@ -14,9 +14,10 @@
 
 .EXAMPLE
   .\scripts\install-service.ps1
-  .\scripts\install-service.ps1 -ServiceAccount '.\Administrator' -Pm2Home 'C:\Users\Administrator\.pm2'
+  .\scripts\install-service.ps1 -ServiceAccount "$env:COMPUTERNAME\Administrator" -Pm2Home 'C:\Users\Administrator\.pm2'
 
-  Prerequisites: run from an elevated PowerShell; nssm.exe on PATH; the deploy folder built
+  Prerequisites: run from an elevated PowerShell; nssm.exe 2.24-101 or newer on PATH (2.24 has a
+  start problem on Windows 10 1703 / Server 2016 and newer); the deploy folder built
   (it is after any successful deploy); nothing listening on the port (stop the PM2 process first).
 #>
 param(
@@ -28,8 +29,9 @@ param(
   # Off C: like the other logs. Holds only what the process prints before its own logger starts
   # (the monitor's log proper goes to LOG_ROOT\_monitor, as under PM2).
   [string]$LogDir         = 'E:\monitor-service-logs',
-  # The account that owns the PM2 daemon, and that daemon's folder.
-  [string]$ServiceAccount = '.\Administrator',
+  # The account that owns the PM2 daemon, and that daemon's folder. COMPUTER\user form: the
+  # Windows password dialog refuses '.\Administrator'.
+  [string]$ServiceAccount = "$env:COMPUTERNAME\Administrator",
   [string]$Pm2Home        = 'C:\Users\Administrator\.pm2',
   [int]$Port              = 4111,
   [int]$HealthTimeoutSec  = 45
@@ -76,17 +78,21 @@ try {
   Invoke-Nssm set $ServiceName Description 'Command Center monitoring backend. Deployed by scripts\deploy.ps1; see docs\runbook-service.md.'
   Invoke-Nssm set $ServiceName Start SERVICE_AUTO_START
 
-  # Restart the app if it exits; ask Node to stop cleanly (Ctrl+C, handled as SIGINT: flush logs
-  # and metrics, close the database) and give it 10 s before killing it.
+  # Restart the app if it exits.
   Invoke-Nssm set $ServiceName AppExit Default Restart
   Invoke-Nssm set $ServiceName AppRestartDelay 5000
   Invoke-Nssm set $ServiceName AppThrottle 10000
-  Invoke-Nssm set $ServiceName AppStopMethodConsole 10000
+  # Stop = end the process at once (7 skips Ctrl+C, window and thread messages). On 2026-10-30 the
+  # Ctrl+C path left NSSM in STOP_PENDING for minutes after node had exited. Under PM2 on Windows
+  # a restart always ended the process at once too; SQLite (WAL) stays consistent.
+  Invoke-Nssm set $ServiceName AppStopMethodSkip 7
 
   Invoke-Nssm set $ServiceName AppStdout (Join-Path $LogDir 'service.log')
   Invoke-Nssm set $ServiceName AppStderr (Join-Path $LogDir 'service.log')
+  # Rotate (over 10 MB) when the service starts, which every deploy does. No rotation while
+  # running: that needs NSSM's own pipe and copy thread, the other suspect in the stop hang.
   Invoke-Nssm set $ServiceName AppRotateFiles 1
-  Invoke-Nssm set $ServiceName AppRotateOnline 1
+  Invoke-Nssm set $ServiceName AppRotateOnline 0
   Invoke-Nssm set $ServiceName AppRotateBytes 10485760
 
   # NSSM grants the account "Log on as a service" when it sets it.

@@ -74,6 +74,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | F1 merged (PR #4). F2 added: the Settings page shows the GitHub and dashboard action settings (patch 0010) |
 | v3 | 2026-10-30 | F3 added: Next.js raised to 16.4.3 for three security advisories (patch 0011) |
 | v3 | 2026-10-30 | F2 and F3 merged (PRs #5, #6). O1 decided yes; H9 done as patch 0012 with `docs/runbook-service.md` |
+| v3 | 2026-10-30 | H9 merged (PR #7); service installed on the VPS. F4: stop hang fixed by hand, patch 0013 for the scripts |
 
 ---
 
@@ -232,6 +233,14 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 - [x] Cause: `next` 16.4.0 is in the range of three advisories (all `>=16.0.0 <=16.4.0`): GHSA-2464-fhr4-w9xw (critical, remote code execution in the Image Optimization API with SVG files), GHSA-673q-mjm6-r5xr (critical, remote code execution in `use cache` functions returning typed arrays) and GHSA-p3m5-59mp-jv5r (high, denial of service with Server Actions). The dashboard uses none of these features (no `next/image`, no `use cache`, no Server Actions), so the exposure was low, but the Vercel deployment runs the affected server.
 - [x] Fix, patch 0011: `next` raised to `^16.4.3` (same minor release; only `next` and its `@next/*` packages change in the lockfile). The npm advisory database lists nothing for 16.4.3. Typecheck, unit tests, `next build` and all 23 end-to-end tests pass.
 - [ ] Server check: the Vercel build for the merge succeeds and its log shows Next.js 16.4.3; `monitor.thediv.in` signs in and the Overview is live.
+
+#### F4: Service stop hung on the server (found during the H9 switch, 2026-10-30)
+
+- [x] Symptom: after the switch, `Restart-Service monitor-api` left the service in `StopPending` for minutes; NSSM's event log stops after "Killing PID ... in process tree", although `node.exe` had exited. Recovered by ending NSSM's process and starting the service.
+- [x] Cause, as far as visible: NSSM's stop path with the Ctrl+C method and rotation while running (`AppStopMethodConsole`, `AppRotateOnline 1`). Not reproduced here (no Windows).
+- [x] Fixed on the server by hand: `AppStopMethodSkip 7` (end the process at once, as PM2 on Windows always did) and `AppRotateOnline 0`. `Restart-Service` then took 10 s.
+- [x] Patch 0013: `install-service.ps1` sets both; its default account is `<computer name>\Administrator` (the password dialog refused `.\Administrator`) and it names NSSM 2.24-101 as required. `deploy.ps1` stops with a 30 s limit and then ends `node.exe` and NSSM itself before starting again. Runbook: NSSM install from the Chocolatey package (nssm.cc was down), stop behaviour, section 7 for a hung stop.
+- [ ] Server check: one deploy through the service path completes ("Restarting service 'monitor-api'" in the log, no "did not stop within 30 s").
 
 #### H9: `monitor-api` outside PM2 (O1 yes, 2026-10-30) (1 day)
 
