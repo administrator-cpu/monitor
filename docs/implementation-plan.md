@@ -63,6 +63,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V23 | Ubuntu: Caddy writes JSON access logs to a file in a named volume and not to stdout (O6) | 11 (M4) | Open |
 | V24 | Ubuntu: backup folder path and the `.offsite-ok` marker after an upload (O5) | 11 (M4) | Open |
 | V25 | Migration `010` on a copy of the production database: `node apps\backend\scripts\migration-check.mjs <copy>` prints OK; record the time (`docs/runbook-hosts.md` section 1). Before the M1 merge | 11 (M1) | **Passed 2026-10-30 14:17.** Copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents): `010` in 0.61 s, every row kept, services and open incidents unchanged. Run with a standalone `node:sqlite` script, the forerunner of `migration-check.mjs` (patch 0017). Here: 0.06 s on a 164 MB database shaped like eight days of production data |
+| V27 | Migration `011` on a copy of the production database (`docs/runbook-hosts.md` section 1): `Applied 011_tls_certs_host.sql`, `OK: every row kept`. Before the patch 0021 merge | 11 (M2) | Open |
 | V26 | After the M1 deploy: pages and open incidents unchanged; Hosts lists `windows-vps`; `/agent/v1/metrics` gives 401 without a token and 403 with an `Origin` through Nginx; optional enrollment dry run (`docs/runbook-hosts.md` section 3) | 11 (M1) | **Passed 2026-10-30.** Deploys of PR #11 and #12 succeeded without rollback (15:46). Nginx `/agent/` added and reloaded 15:55. `curl` through the public name: `401`, then `403` with `Origin` (15:56). Dashboard 16:17: Settings shows "Remote hosts"; Overview, Host, Services and Alerts unchanged; all collectors ok. Admin → Hosts lists `windows-vps` (#1, Windows, "this server") at 16:31. Enrollment dry run not done |
 
 ### 0.4 Change log
@@ -84,6 +85,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
 | v3 | 2026-10-30 | M1 merged (PR #11, `772dd65`), patch 0017 (PR #12, `0528e71`), patch 0018 (PR #13, docs only). Not yet confirmed: the PR #11 and #12 deploys, Nginx `/agent/`, V26 |
 | v3 | 2026-10-30 | Patch 0019: status labels after the merges. `pnpm audit --prod` from 18 advisories to 7: `systeminformation` 5.33.19, `fastify` 5.12.7, `fast-uri` 3.1.9 and 4.2.3, `ip-address` 10.7.5 (through `@fastify/rate-limit`). Left: zod 4 and pm2 7, deferred (section 7). One build allow-list, in the root `package.json` (pnpm ignored the one in `pnpm-workspace.yaml`); esbuild's postinstall stays off, as it always was in practice |
+| v3 | 2026-10-30 | Patch 0021, M2 monitor side: migration `011` (`tls_certs` per host; the planned M4 and M5 migrations become `012` and `013`), container services, events, per-host rules, `?host=` on `/host` and `/services`. V27 added |
 | v3 | 2026-10-30 | Patch 0019 merged (PR #14, `003d943`) and deployed. Deploys of PR #11 and #12 succeeded; Nginx `/agent/` in (`C:\nginx-1.30.2`; runbook path and zone names corrected, server state in `runbook-nginx.md` section 2.1); V26 passed; nightly backups run and V19's local part passed. `runbook-backups.md` runs the scripts from `C:\Apps\command-center-deploy`. `/admin` redirects to Admin → Users; the Hosts page's add panel sits below its header (patch 0020) |
 
 ---
@@ -95,7 +97,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | Read-only until the action phase, actions only with TOTP | Changed 2026-10-09: actions with login and `can_operate`. TOTP is decision O3 |
 | Localhost until HTTPS | Followed |
 | Verify on the real server | Required for every step; list in 0.3 |
-| One migration per step that changes the schema | `008` and `009` for Parts A and B; `010` (M1), `011` (M4), `012` (M5) |
+| One migration per step that changes the schema | `008` and `009` for Parts A and B; `010` (M1), `011` (M2), `012` (M4), `013` (M5) |
 | Persistence arrives with each collector | Followed |
 | Every phase ends with a demo | `pnpm demo`, extended to two hosts in M2 |
 | **Every change through a pull request with green CI** | **Broken once** (`e31724b`, direct push). Enforced by branch protection in H1 |
@@ -306,7 +308,7 @@ Not in M1, as planned: container discovery and services from the container list 
 
 - [ ] `apps/docker-proxy`: HAProxy config with the TRD 14.4 allowlist and `ALLOW_ACTIONS`; CI test that every forbidden path returns 403.
 - [ ] `apps/node-agent`: host metrics from `/proc` and `statfs` (TRD 14.5), container list, stats and events through the proxy, restart counting, push every 10 s with retry and backoff, token on the state volume.
-- [ ] Discovery and auto-archive of compose services, same rules as PM2.
+- [x] Discovery and auto-archive of compose services, same rules as PM2 (patch 0021).
 - [ ] CI builds both images and pushes to GHCR on `main`.
 - [ ] Compose file and runbook "Adding a host" (enroll, env file, `docker compose up -d`, check).
 - [ ] Minimal host switcher so Host and Services pages work for host 2.
@@ -315,7 +317,9 @@ Not in M1, as planned: container discovery and services from the container list 
 
 Acceptance: the Ubuntu host appears within a minute of `docker compose up -d` with CPU, memory, swap, disks and every `acs` container; stopping `cpe-sim` on the server opens "service down" and starting it resolves; stopping the agent raises `host.silent` and hides that host's other alerts (the rule and its suppression exist since M1).
 
-Also in M2: the host rules (`host.disk_*`, `host.cpu_high`, `host.mem_high`, `host.pending_reboot`) evaluated for agent hosts with `hostTarget()`, and `tls_certs` keyed by `(host_id, host)` before M4 checks certificates on other hosts (its primary key is still `host`).
+Also in M2: the host rules (`host.disk_*`, `host.cpu_high`, `host.mem_high`, `host.pending_reboot`) evaluated for agent hosts with `hostTarget()`, and `tls_certs` keyed by `(host_id, host)` before M4 checks certificates on other hosts.
+
+**Monitor side done as patch 0021.** Migration `011_tls_certs_host.sql` (V27 before the merge). `src/hosts/containers.ts` turns each metrics report's container list into `container` services of that host (key `<project>/<service>`, display name the compose service), keeps their live state and stores their 10 s rows; containers missing from the list show as stopped and are archived after `pm2.auto_archive_minutes` (15), unless the list holds only the agent's own project. Container events go to `process_events` and set the last exit. The per-host rules (`PER_HOST_RULES`: the five host rules and the three service rules) run for every enrolled agent host whose last report is under 35 s old, with summaries naming the host (`CPU on ubuntu-acs is at …`); a stale local collector now only takes host 1 out of those rules instead of all hosts, and an open incident resolves only when its own host was judged in that tick. `/host?host=<id>` and `/services?host=<id|all>` serve other hosts (host 1 stays the default); the live message lists the hosts for the switcher. Archiving by hand is refused while the host's agent still lists the container. Tests: 13 in `containers.test.ts`, one more in `migration-check.test.ts` (011 on a 010 copy).
 
 #### M3: Logs (2 to 3 days)
 
@@ -330,7 +334,7 @@ Acceptance: container logs searchable next to Windows logs; a burst above the li
 
 #### M4: Mongo, Caddy, relay, backups, security counts, probes, watchdog (4 to 5 days)
 
-- [ ] Migration `011_remote_checks.sql` (schema 13.4).
+- [ ] Migration `012_remote_checks.sql` (schema 13.5).
 - [ ] Mongo collector in the agent over the `acs` network (read-only user).
 - [ ] Caddy access log tailer with the field allowlist; certificate checks by SNI to the Caddy container; second filter on the Caddy container's stdout.
 - [ ] Relay on port 4002 with `CC_RELAY_TOKEN`; the Express API's `createMonitor({ url, service, token })` set to it.
@@ -344,7 +348,7 @@ Acceptance: a backup older than 26 hours, or no offsite marker for 26 hours, rai
 
 #### M5: Remote actions (3 to 4 days)
 
-- [ ] Migration `012_agent_commands.sql`.
+- [ ] Migration `013_agent_commands.sql` (schema 13.6).
 - [ ] `POST /services/:id/actions` for container services: queue, 202, `GET /api/v1/commands/:id`; guard, busy, cooldown, host status checks; audit `service_action_requested`.
 - [ ] `commands/next` long-poll (25 s, one per host) and `commands/:id/result`; expiry job (60 s); single use.
 - [ ] Agent: re-checks (listed, project allowed, not itself or the proxy, no `cc.actions=off`, `CC_ACTIONS` on), proxy call, state wait, result.

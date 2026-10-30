@@ -332,10 +332,15 @@ export interface MonitorHealth {
 }
 
 export interface HostResponse {
+  /** The host these figures belong to; 1 (this server) unless `?host=` asked for another. */
+  hostId: number;
   host: HostState | null;
   series: HostSeries;
+  /** The monitor's own collectors; empty for an agent host (its collectors are in `agent`). */
   collectors: CollectorStatus[];
   monitor: MonitorHealth;
+  /** Agent hosts only. */
+  agent: HostAgentInfo | null;
 }
 
 export interface OverviewResponse {
@@ -362,6 +367,8 @@ export interface LiveMessage {
   openIncidents: number;
   /** The monitor's own process (Overview "Monitor" card). Absent from older backends. */
   monitor?: MonitorHealth;
+  /** Every host that is not revoked, for the host switcher. Absent from older backends. */
+  hosts?: HostSummary[];
 }
 
 export type LogStream = 'out' | 'err' | 'app' | 'access' | 'error';
@@ -513,6 +520,8 @@ export interface ProcessState {
   restarts: number;
   uptimeS: number;
   lastExit?: { at: number; code: number | null; signal: string | null };
+  /** Containers with a health check (agent hosts); absent for PM2 processes. */
+  health?: 'healthy' | 'unhealthy' | 'starting' | null;
 }
 
 export type ServiceKind = 'pm2' | 'container' | 'pseudo';
@@ -1163,6 +1172,33 @@ export type HostStatus = 'local' | 'waiting' | 'online' | 'silent' | 'revoked';
 export const HOST_ONLINE_MS = 60_000;
 /** Agent timestamps further than this from the monitor's clock are replaced by the arrival time. */
 export const AGENT_MAX_SKEW_MS = 5 * 60_000;
+/**
+ * An agent host's figures count as current for this long after its last metrics report (three
+ * 10 s reports plus a margin). Older figures are not evidence: its alerts neither open nor resolve
+ * until reports resume, and `host.silent` takes over.
+ */
+export const AGENT_HOST_FRESH_MS = 35_000;
+
+/** One host as the live message and the host switcher list it. */
+export interface HostSummary {
+  id: number;
+  name: string;
+  kind: HostKind;
+  os: HostOs;
+  status: HostStatus;
+}
+
+/** What an agent host reports about itself (the metrics `agent` section) plus what the monitor knows. */
+export interface HostAgentInfo {
+  version: string | null;
+  lastSeenAt: number | null;
+  actionsEnabled: boolean | null;
+  /** From the latest metrics report that carried an `agent` section; null before one arrives. */
+  reportedAt: number | null;
+  droppedLogLines: number;
+  bufferBytes: number;
+  collectors: { name: string; lastOkAt: number | null; error: string | null }[];
+}
 
 export interface HostIngestCounts {
   /** Requests accepted since the monitor started, by endpoint. */
@@ -1309,6 +1345,8 @@ export const agentContainerSchema = z
     cpuPct: nonNegF,
     memBytes: nonNegF,
     startedAt: epochMs.nullable(),
+    /** A container of the agent's own compose project (the agent and its Docker proxy). */
+    own: z.boolean().optional(),
   })
   .strict();
 export type AgentContainer = z.infer<typeof agentContainerSchema>;
@@ -1416,7 +1454,7 @@ export const agentLogsSchema = z
   .strict();
 export type AgentLogs = z.infer<typeof agentLogsSchema>;
 
-/** POST /agent/v1/events, as containers change state. Stored from M2. */
+/** POST /agent/v1/events, as containers change state. Stored in `process_events` (M2). */
 export const agentEventsSchema = z
   .object({
     v: z.literal(1),

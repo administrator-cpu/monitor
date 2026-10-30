@@ -1,10 +1,12 @@
-# Runbook: remote hosts on the monitor (phase 11, M1)
+# Runbook: remote hosts on the monitor (phase 11, M1 and M2)
 
 What the owner does on the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). Nothing is installed on the Ubuntu server in M1; the agent and its compose file arrive with M2 (a later section of this runbook, "Adding a host").
 
 ## 1. Before merging: a migration on a copy (V25 for `010`)
 
 **V25 passed on 2026-10-30:** `010` on a copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents) took 0.61 s; every row was kept and services and open incidents were unchanged. The steps below are the same for every later migration (`011` onward).
+
+**V27, before merging patch 0021 (M2):** the same check for `011_tls_certs_host.sql`. Production is at `010`, so the expected line is `Applied 011_tls_certs_host.sql in <time>`, then `OK: every row kept`. It only rebuilds `tls_certs` (a handful of rows), so it should take well under a second.
 
 Migration `010_hosts.sql` rebuilds `services`, `metrics_host`, `metrics_disk` and `metrics_mongo` with a `host_id` column and adds `hosts`. Each migration runs in one transaction when the new backend starts; a failure stops startup and the deploy rolls back. Test it on a copy first (backend-schema.md section 13). The check is `apps\backend\scripts\migration-check.mjs`: it uses Node's built-in `node:sqlite`, so it needs Node 22.13 or later (the VPS has 22.22) and **nothing installed**, no `pnpm install` and no build.
 
@@ -27,7 +29,7 @@ Migration `010_hosts.sql` rebuilds `services`, `metrics_host`, `metrics_disk` an
    node C:\Apps\migration-test\apps\backend\scripts\migration-check.mjs E:\monitor-backups\migration-test\monitor.db
    ```
    Expected: `Applied 0NN_<name>.sql in <time>`, services and open incidents unchanged, `OK: every row kept`. Anything under a few seconds is fine. `Nothing to apply` means the copy already has the branch's migrations (for example a backup taken after the merge). Exit code 1 with `FAILED` or `threw` means do not merge; send the output.
-4. Record the time and the result in `implementation-plan.md` section 0.3 (V25 for `010`), then delete both test folders:
+4. Record the time and the result in `implementation-plan.md` section 0.3 (V25 for `010`, V27 for `011`), then delete both test folders:
    ```powershell
    cd C:\
    Remove-Item -Recurse -Force E:\monitor-backups\migration-test, C:\Apps\migration-test

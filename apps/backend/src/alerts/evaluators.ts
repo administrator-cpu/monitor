@@ -1,4 +1,13 @@
-import { AGENT_FRESH_MS, LOCAL_HOST_ID, type CollectorStatus, type LogStatus } from '@cc/shared';
+import {
+  AGENT_FRESH_MS,
+  AGENT_HOST_FRESH_MS,
+  LOCAL_HOST_ID,
+  type CollectorStatus,
+  type DiskState,
+  type HostState,
+  type LogStatus,
+  type ProcessState,
+} from '@cc/shared';
 import type { StateStore } from '../state';
 import { parseOverrides, type RuleRow } from './rules';
 
@@ -35,6 +44,17 @@ export interface EvalContext {
   emailBadSince: (since: number) => number;
   /** Enrolled, not revoked agent hosts (phase 11). */
   agentHosts: () => AgentHostView[];
+  /**
+   * Per-host rules (`PER_HOST_RULES`) only: true while this server's required collectors are
+   * stale, so the rule judges the agent hosts and leaves host 1's incidents as they are.
+   */
+  localStale?: boolean;
+  /**
+   * Per-host rules only: each evaluator adds the hosts it judged this tick. An open incident whose
+   * target was not observed resolves only if its host is in here; a host whose figures are stale
+   * (an agent that stopped reporting, or a stale local collector) keeps its incidents as they are.
+   */
+  judged?: Set<number>;
 }
 
 /** `null` means "cannot evaluate right now": open incidents keep their state. */
@@ -54,6 +74,69 @@ export const hostTarget = (hostId: number, target: string): string =>
 
 /** A host is "silent" to the evaluator after this long; the rule's duration then applies on top. */
 export const HOST_SILENT_GRACE_MS = 30_000;
+
+/**
+ * Rules evaluated for every host: this server from its collectors, each agent host from its reports
+ * (TRD 14.8). For these, a stale local collector only takes host 1 out of the evaluation.
+ */
+export const PER_HOST_RULES = new Set([
+  'host.disk_high',
+  'host.disk_critical',
+  'host.cpu_high',
+  'host.mem_high',
+  'host.pending_reboot',
+  'pm2.service_down',
+  'pm2.crash_loop',
+  'pm2.memory_high',
+]);
+
+/** One host as the per-host rules see it. */
+interface HostView {
+  id: number;
+  /** Appended to summaries: '' for this server, ' on <name>' for an agent host. */
+  on: string;
+  os: 'windows' | 'linux';
+}
+
+/**
+ * This server unless its collectors are stale, plus each enrolled agent host with current figures.
+ * `host` and `disks` are null when that part has no current reading; the rule then skips the host
+ * (and does not count it as judged). On host 1 the collectors' staleness is the freshness test, as
+ * before phase 11; on an agent host the time of its last report.
+ */
+function hostsWithFigures(c: EvalContext): (HostView & { host: HostState | null; disks: DiskState[] | null })[] {
+  const out: (HostView & { host: HostState | null; disks: DiskState[] | null })[] = [];
+  if (!c.localStale) {
+    out.push({ id: LOCAL_HOST_ID, on: '', os: 'windows', host: c.state.getHost(), disks: c.state.getDisksAt()?.list ?? null });
+  }
+  for (const a of c.agentHosts()) {
+    const slice = c.state.host(a.id);
+    if (!slice) continue;
+    const h = slice.getHost();
+    const d = slice.getDisksAt();
+    out.push({
+      id: a.id,
+      on: ` on ${a.name}`,
+      os: 'linux',
+      host: h && c.now - h.updatedAt <= AGENT_HOST_FRESH_MS ? h : null,
+      disks: d && c.now - d.at <= AGENT_HOST_FRESH_MS ? d.list : null,
+    });
+  }
+  return out;
+}
+
+/** This server's processes (PM2) and each agent host's containers, when the list is current. */
+function hostsWithProcesses(c: EvalContext): (HostView & { procs: ProcessState[] })[] {
+  const out: (HostView & { procs: ProcessState[] })[] = [];
+  if (!c.localStale && c.state.getProcessesAt() !== null)
+    out.push({ id: LOCAL_HOST_ID, on: '', os: 'windows', procs: c.state.getProcessStates() });
+  for (const a of c.agentHosts()) {
+    const at = c.state.getProcessesAt(a.id);
+    if (at === null || c.now - at > AGENT_HOST_FRESH_MS) continue;
+    out.push({ id: a.id, on: ` on ${a.name}`, os: 'linux', procs: c.state.getProcessStates(a.id) });
+  }
+  return out;
+}
 
 /** Rules stop being evaluated while any of these collectors is stale: stale data is not evidence. */
 export const REQUIRED_COLLECTORS: Record<string, string[]> = {
@@ -89,20 +172,26 @@ const VOLUME_REASON: Record<string, string> = {
 const gib = (b: number): string => `${(b / 1024 ** 3).toFixed(2)} GiB`;
 
 function diskRule(rule: RuleRow, c: EvalContext): Observation[] | null {
-  const d = c.state.getDisksAt();
-  if (!d || rule.threshold === null) return null;
-  return d.list
-    .filter((x) => x.totalBytes > 0)
-    .map((x) => {
+  if (rule.threshold === null) return null;
+  const limit = rule.threshold;
+  const out: Observation[] = [];
+  for (const h of hostsWithFigures(c)) {
+    if (!h.disks) continue; // no current disk reading for this host: not judged
+    c.judged?.add(h.id);
+    for (const x of h.disks) {
+      if (x.totalBytes <= 0) continue;
       const used = (x.usedBytes / x.totalBytes) * 100;
-      return {
-        target: x.volume,
+      out.push({
+        target: hostTarget(h.id, x.volume),
         serviceId: null,
-        active: used > (rule.threshold as number),
+        hostId: h.id,
+        active: used > limit,
         value: used,
-        summary: `Disk ${x.volume} is ${pct(used)} full (limit ${rule.threshold}%)`,
-      };
-    });
+        summary: `Disk ${x.volume}${h.on} is ${pct(used)} full (limit ${limit}%)`,
+      });
+    }
+  }
+  return out;
 }
 
 const DAY_MS = 86_400_000;
@@ -168,46 +257,62 @@ export function createEvaluators(): Record<string, Evaluator> {
     'host.disk_critical': diskRule,
 
     'host.cpu_high': (rule, c) => {
-      const h = c.state.getHost();
-      if (!h || rule.threshold === null) return null;
-      return [
-        {
-          target: '',
+      if (rule.threshold === null) return null;
+      const limit = rule.threshold;
+      const out: Observation[] = [];
+      for (const { id, on, host: h } of hostsWithFigures(c)) {
+        if (!h) continue;
+        c.judged?.add(id);
+        out.push({
+          target: hostTarget(id, ''),
           serviceId: null,
-          active: h.cpuPct > rule.threshold,
+          hostId: id,
+          active: h.cpuPct > limit,
           value: h.cpuPct,
-          summary: `CPU is at ${pct(h.cpuPct)} (limit ${rule.threshold}%)`,
-        },
-      ];
+          summary: `CPU${on} is at ${pct(h.cpuPct)} (limit ${limit}%)`,
+        });
+      }
+      return out;
     },
 
     'host.mem_high': (rule, c) => {
-      const h = c.state.getHost();
-      if (!h || h.memTotalBytes <= 0 || rule.threshold === null) return null;
-      const used = (h.memUsedBytes / h.memTotalBytes) * 100;
-      return [
-        {
-          target: '',
+      if (rule.threshold === null) return null;
+      const limit = rule.threshold;
+      const out: Observation[] = [];
+      for (const { id, on, host: h } of hostsWithFigures(c)) {
+        if (!h || h.memTotalBytes <= 0) continue;
+        c.judged?.add(id);
+        const used = (h.memUsedBytes / h.memTotalBytes) * 100;
+        out.push({
+          target: hostTarget(id, ''),
           serviceId: null,
-          active: used > rule.threshold,
+          hostId: id,
+          active: used > limit,
           value: used,
-          summary: `Memory is ${pct(used)} used, ${gib(h.memUsedBytes)} of ${gib(h.memTotalBytes)} (limit ${rule.threshold}%)`,
-        },
-      ];
+          summary: `Memory${on} is ${pct(used)} used, ${gib(h.memUsedBytes)} of ${gib(h.memTotalBytes)} (limit ${limit}%)`,
+        });
+      }
+      return out;
     },
 
     'host.pending_reboot': (_rule, c) => {
-      const h = c.state.getHost();
-      if (!h) return null;
-      return [
-        {
-          target: '',
+      const out: Observation[] = [];
+      for (const { id, on, os, host: h } of hostsWithFigures(c)) {
+        if (!h) continue;
+        c.judged?.add(id);
+        out.push({
+          target: hostTarget(id, ''),
           serviceId: null,
+          hostId: id,
           active: h.pendingReboot,
           value: null,
-          summary: 'Windows has had a reboot pending for a long time',
-        },
-      ];
+          summary:
+            os === 'windows'
+              ? `Windows${on} has had a reboot pending for a long time`
+              : `Linux${on} has had a reboot pending for a long time (/run/reboot-required)`,
+        });
+      }
+      return out;
     },
 
     'host.eventlog_critical': (_rule, c) => {
@@ -231,43 +336,56 @@ export function createEvaluators(): Record<string, Evaluator> {
       ];
     },
 
-    'pm2.service_down': (_rule, c) => {
-      if (c.state.getProcessesAt() === null) return null;
-      return c.state.getProcessStates().map((p) => ({
-        target: String(p.serviceId),
-        serviceId: p.serviceId,
-        active: p.status !== 'online',
-        value: null,
-        summary: `Service ${p.name} is ${p.status}${p.instances > 0 ? ` (${p.instancesOnline} of ${p.instances} instances online)` : ''}`,
-      }));
-    },
-
-    'pm2.crash_loop': (rule, c) => {
-      if (c.state.getProcessesAt() === null || rule.threshold === null) return null;
-      return c.state.getProcessStates().map((p) => {
-        const n = c.state.restartsInWindow(p.serviceId, c.now, 600_000);
-        return {
+    // The service rules apply to PM2 processes on this server and to containers on agent hosts.
+    // Service ids are unique across hosts, so the targets need no host prefix (TRD 14.8).
+    'pm2.service_down': (_rule, c) =>
+      hostsWithProcesses(c).flatMap(({ id, on, procs }) => {
+        c.judged?.add(id);
+        return procs.map((p) => ({
           target: String(p.serviceId),
           serviceId: p.serviceId,
-          active: n >= (rule.threshold as number),
-          value: n,
-          summary: `Service ${p.name} restarted ${n} times in the last 10 minutes (limit ${rule.threshold})`,
-        };
+          hostId: id,
+          active: p.status !== 'online',
+          value: null,
+          summary: `Service ${p.name}${on} is ${p.status}${p.instances > 0 ? ` (${p.instancesOnline} of ${p.instances} instances online)` : ''}`,
+        }));
+      }),
+
+    'pm2.crash_loop': (rule, c) => {
+      if (rule.threshold === null) return null;
+      const limit = rule.threshold;
+      return hostsWithProcesses(c).flatMap(({ id, on, procs }) => {
+        c.judged?.add(id);
+        return procs.map((p) => {
+          const n = c.state.restartsInWindow(p.serviceId, c.now, 600_000);
+          return {
+            target: String(p.serviceId),
+            serviceId: p.serviceId,
+            hostId: id,
+            active: n >= limit,
+            value: n,
+            summary: `Service ${p.name}${on} restarted ${n} times in the last 10 minutes (limit ${limit})`,
+          };
+        });
       });
     },
 
     'pm2.memory_high': (rule, c) => {
-      if (c.state.getProcessesAt() === null || rule.threshold === null) return null;
+      if (rule.threshold === null) return null;
       const overrides = parseOverrides(rule.params);
-      return c.state.getProcessStates().map((p) => {
-        const limit = overrides[p.pm2Name] ?? (rule.threshold as number);
-        return {
-          target: String(p.serviceId),
-          serviceId: p.serviceId,
-          active: p.status === 'online' && p.memBytes > limit,
-          value: p.memBytes,
-          summary: `Service ${p.name} uses ${gib(p.memBytes)} (limit ${gib(limit)})`,
-        };
+      return hostsWithProcesses(c).flatMap(({ id, on, procs }) => {
+        c.judged?.add(id);
+        return procs.map((p) => {
+          const limit = overrides[p.pm2Name] ?? (rule.threshold as number);
+          return {
+            target: String(p.serviceId),
+            serviceId: p.serviceId,
+            hostId: id,
+            active: p.status === 'online' && p.memBytes > limit,
+            value: p.memBytes,
+            summary: `Service ${p.name}${on} uses ${gib(p.memBytes)} (limit ${gib(limit)})`,
+          };
+        });
       });
     },
 

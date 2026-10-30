@@ -143,7 +143,7 @@ describe('migration 010 on a database that already has data', () => {
       );
     const before = counts();
 
-    expect(migrate(db).applied).toEqual(['010_hosts.sql']);
+    expect(migrate(db).applied).toEqual(['010_hosts.sql', '011_tls_certs_host.sql']);
 
     expect(counts()).toEqual(before);
     expect(

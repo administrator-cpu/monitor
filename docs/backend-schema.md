@@ -25,8 +25,9 @@ Every data structure the backend owns: SQLite tables, log files, in-memory shape
 | `008_github.sql` | `services.git_repo`, `git_branch`, `git_path`; `service_git` | Built |
 | `009_email.sql` | `email_event_counts`, `email_webhook_seen`, rule `monitor.email_bounce_spike` | Built |
 | `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Merged (PR #11, patch 0016); production copy check V25 passed 2026-10-30 (0.61 s, every row kept); on-server check V26 passed 2026-10-30 |
-| `011_remote_checks.sql` | Probes, host check metrics, three rules | Planned (M4) |
-| `012_agent_commands.sql` | Remote action queue | Planned (M5) |
+| `011_tls_certs_host.sql` | `tls_certs` keyed by `(host_id, host)` | Built (M2, patch 0021); production copy check V27 before merge |
+| `012_remote_checks.sql` | Probes, host check metrics, three rules | Planned (M4) |
+| `013_agent_commands.sql` | Remote action queue | Planned (M5) |
 
 v2 described one migration `008` for GitHub and email and a multi-host `009`. The repository has `008_github.sql` and `009_email.sql`, so multi-host starts at `010`.
 
@@ -36,6 +37,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 |---|---|---|
 | v1 | 2026-10-08 | Migrations `001` to `007` |
 | v2 | 2026-10-29 | Proposed `008` and `009` |
+| v3 | 2026-10-30 | `011_tls_certs_host.sql` (M2): `tls_certs` keyed by `(host_id, host)`, rows kept as host 1 (13.4). The planned remote checks and command queue move to `012` and `013`. Container events stored in `process_events` with `pm_id` NULL (13.7) |
 | v3 | 2026-10-30 | `010` built (phase 11 M1): sections 13.1 to 13.3 as written; phase 11 settings use the prefix `hosts.`; `tls_certs` keeps `host` as its primary key until M2 (13.3); payload notes in 13.6 |
 | v3 | 2026-10-29 | `008` and `009` recorded from the repository. All "verify against the code" items resolved. Multi-host as `010` to `012`: `services` rebuilt with `host_id`, `kind`, `source_key`, `log_excluded`; host-scoped fingerprints that leave host 1 unchanged; payloads without container inspect; remote action queue |
 
@@ -262,9 +264,9 @@ Behavior added by Parts 0 and C: a Stop mutes `pm2.service_down` for that servic
 | Key | Category | Condition | Threshold | Duration | Severity | Migration |
 |---|---|---|---|---|---|---|
 | `host.silent` | monitor | No agent request from a host | — | 120 s | critical | `010` |
-| `host.probe_failed` | monitor | Outside-in probe target failing | 3 consecutive | 0 | critical | `011` |
-| `monitor.backup_stale` | monitor | Newest local backup, or last offsite marker, older than threshold; targets `local` and `offsite` | 26 h | 0 | warning | `011` |
-| `host.auth_failures_high` | host | Failed SSH logins in the last hour | 300 | 0 | warning, **disabled** by default | `011` |
+| `host.probe_failed` | monitor | Outside-in probe target failing | 3 consecutive | 0 | critical | `012` |
+| `monitor.backup_stale` | monitor | Newest local backup, or last offsite marker, older than threshold; targets `local` and `offsite` | 26 h | 0 | warning | `012` |
+| `host.auth_failures_high` | host | Failed SSH logins in the last hour | 300 | 0 | warning, **disabled** by default | `012` |
 
 - `host.silent` applies only to enrolled, not revoked agent hosts. It turns active 30 s after the host's last request and opens after its 120 s duration; it suppresses every incident with the same `host_id` except `host.probe_failed`. Revoking a host ends its open incidents without email. Fingerprint `host.silent:@<id>/`.
 - Existing rules apply per host; `pm2.*` cover containers; `nginx.5xx_rate` and the certificate rules cover Caddy.
@@ -402,7 +404,7 @@ Not stored: recipients, subjects, bodies, tags, message ids. Both tables are pru
 
 ---
 
-## 13. Migrations `010` to `012` and Agent Payloads (`010` built, `011` and `012` planned)
+## 13. Migrations `010` to `013` and Agent Payloads (`010` and `011` built, `012` and `013` planned)
 
 Each migration runs in the runner's single transaction with `foreign_keys = ON`. That is safe for the `services` rebuild because no table references `services` by foreign key. The column lists below must be checked against the live schema before merge (`PRAGMA table_info`), and each migration is timed on a copy of the production database with `node apps/backend/scripts/migration-check.mjs <copy>` (plain Node 22.13 or later, nothing installed; `runbook-hosts.md` section 1).
 
@@ -506,9 +508,24 @@ If the copy takes too long on the production copy, the migration may instead dro
 
 `010` also seeds rule `host.silent`.
 
-As built: the rebuilds copy every row (no history is dropped); on a 164 MB database shaped like eight days of production data `010` took 0.06 s, because the rebuilt tables are the small host-level ones. `tls_certs` keeps `host` as its primary key; the TLS collector reads, writes and prunes only `host_id = 1`. It must become `(host_id, host)` before another host's certificates are stored (M4; noted under M2 in the plan).
+As built: the rebuilds copy every row (no history is dropped); on a 164 MB database shaped like eight days of production data `010` took 0.06 s, because the rebuilt tables are the small host-level ones. `tls_certs` keeps `host` as its primary key; the TLS collector reads, writes and prunes only `host_id = 1`. Changed to `(host_id, host)` by `011` (13.4).
 
-### 13.4 `011_remote_checks.sql`
+### 13.4 `011_tls_certs_host.sql` (built, M2)
+
+```sql
+CREATE TABLE tls_certs_new (
+  host_id INTEGER NOT NULL DEFAULT 1, host TEXT NOT NULL, not_after INTEGER, issuer TEXT,
+  checked_at INTEGER NOT NULL, last_error TEXT,
+  PRIMARY KEY (host_id, host)
+);
+INSERT INTO tls_certs_new SELECT host_id, host, not_after, issuer, checked_at, last_error FROM tls_certs;
+DROP TABLE tls_certs;
+ALTER TABLE tls_certs_new RENAME TO tls_certs;
+```
+
+Every row is kept as it was (all are host 1 since `010`). The TLS collector upserts on `(host_id, host)` and still reads, writes and prunes only host 1; M4 adds the agent hosts' certificates. No other table changes: container services use the `services` columns `010` added, and container events go into `process_events` (`pm_id` NULL, `event` one of `die`, `oom`, `health_status`, `start`, `stop`, `restart`).
+
+### 13.5 `012_remote_checks.sql`
 
 ```sql
 CREATE TABLE host_probes (
@@ -545,7 +562,7 @@ CREATE TABLE metrics_host_checks (
 
 Seeds `host.probe_failed`, `monitor.backup_stale`, `host.auth_failures_high` (disabled), and the probes for host 2 once it exists (TCP 7547, 443, 80 to `acs.thediv.in`; HTTPS health URL added by the admin when O4 is answered). Per-jail ban counts are shown live only.
 
-### 13.5 `012_agent_commands.sql`
+### 13.6 `013_agent_commands.sql`
 
 ```sql
 CREATE TABLE agent_commands (
@@ -568,7 +585,7 @@ CREATE UNIQUE INDEX idx_cmd_open_per_service ON agent_commands(service_id) WHERE
 
 This adds the first foreign key to `services`; any later rebuild of `services` must account for it.
 
-### 13.6 Agent payloads
+### 13.7 Agent payloads
 
 All `/agent/v1/*` requests except `enroll` carry `Authorization: Bearer <host token>` and `X-Agent-Version`; bodies are JSON, optionally `Content-Encoding: gzip`. The host comes from the token.
 
@@ -636,9 +653,11 @@ Response `{ "hostId": 2, "hostName": "ubuntu-acs", "token": "…" }`. The host n
 
 **Responses:** 200 or 204 on success; 400 invalid body (or a missing `X-Agent-Version`); 401 bad, missing or revoked token, and for `enroll` an unknown, used (`enroll_token_invalid`) or expired (`enroll_token_expired`) token; 403 request carried an `Origin` header; 409 command conflict; 413 too large (compressed or decompressed); 415 not `application/json` or an encoding other than gzip; 426 agent too old; 429 rate limited with `Retry-After`. Refused values are never echoed: a 400 names only the field paths.
 
-**As built in M1:** every schema is strict (unknown fields 400). `metrics` is stored at arrival time: the snapshot is taken just before sending, and a late or skewed agent clock would otherwise put rows into 10 s buckets that were already written; the agent's `ts` is only compared, and a skew over 5 minutes is stored in `hosts.clock_skew_ms` and shown on the Hosts page. The `host` section feeds the host's live slice and `metrics_host`, `metrics_disk`; `containers` is kept as the host's latest list. `mongo`, `gateway` and `checks` are checked for shape and not yet stored (M4). `logs`, `events` and `app` are validated, authenticated and counted per host, and stored from M3, M2 and M4. `enroll` also answers 400 `os_mismatch` when the agent's `os` is not the host's, and 426 before using up the token when the agent is too old.
+**As built in M1:** every schema is strict (unknown fields 400). `metrics` is stored at arrival time: the snapshot is taken just before sending, and a late or skewed agent clock would otherwise put rows into 10 s buckets that were already written; the agent's `ts` is only compared, and a skew over 5 minutes is stored in `hosts.clock_skew_ms` and shown on the Hosts page. The `host` section feeds the host's live slice and `metrics_host`, `metrics_disk`; `containers` is kept as the host's latest list. `mongo`, `gateway` and `checks` are checked for shape and not yet stored (M4). `logs` and `app` are validated, authenticated and counted per host, and stored from M3 and M4.
 
-### 13.7 Counts
+**As built in M2:** `containers` (when present) becomes the host's services: each `key` is discovered as a `container` service of that host, its process state and 30-minute ring are kept like PM2's, and its 10 s rows go to `metrics_process`. A report without `containers` means the agent could not read Docker that time: the services keep their last state and stop counting as current after 35 s. A container may carry `own: true` (the agent's own compose project); auto-archive only happens when the list holds something else. `agent` is kept as the host's latest self-report (Host page). `events` are stored in `process_events` for known services (`die` and `oom` also set the service's last exit); events for keys not yet listed are dropped, and a timestamp more than 5 minutes from the monitor's clock is replaced by the arrival time. `enroll` also answers 400 `os_mismatch` when the agent's `os` is not the host's, and 426 before using up the token when the agent is too old.
+
+### 13.8 Counts
 
 - `hosts`: one row per host (2 after enrollment).
 - `services`: one row per compose service on agent hosts (about 9 on Ubuntu).

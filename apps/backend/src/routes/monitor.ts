@@ -1,5 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import type { HostResponse, OverviewResponse, OverviewSummary, RangeLimitsResponse } from '@cc/shared';
+import {
+  LOCAL_HOST_ID,
+  type HostAgentInfo,
+  type HostResponse,
+  type OverviewResponse,
+  type OverviewSummary,
+  type RangeLimitsResponse,
+} from '@cc/shared';
 import type { AppContext } from '../context';
 import { requireUser } from '../guard';
 import { rangeLimits } from '../limits';
@@ -25,10 +32,40 @@ export function monitorRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/limits', user, async (): Promise<RangeLimitsResponse> => rangeLimits(ctx.settings));
 
   // The series comes from the in-memory ring buffer so a freshly opened page is never empty.
-  app.get('/host', user, async (): Promise<HostResponse> => ({
-    host: ctx.state.getHost(),
-    series: ctx.state.getHostSeries(),
-    collectors: ctx.scheduler.status(),
-    monitor: ctx.health.snapshot(),
-  }));
+  // `?host=<id>` reads an agent host (phase 11); without it, this server as before.
+  app.get('/host', user, async (req, reply): Promise<HostResponse | void> => {
+    const raw = (req.query as { host?: string }).host;
+    const hostId = raw === undefined ? LOCAL_HOST_ID : Number(raw);
+    const row = Number.isInteger(hostId) ? ctx.hosts.get(hostId) : undefined;
+    if (!row || row.revoked_at !== null) return reply.code(404).send({ error: 'not_found' });
+    if (hostId === LOCAL_HOST_ID) {
+      return {
+        hostId,
+        host: ctx.state.getHost(),
+        series: ctx.state.getHostSeries(),
+        collectors: ctx.scheduler.status(),
+        monitor: ctx.health.snapshot(),
+        agent: null,
+      };
+    }
+    const slice = ctx.state.host(hostId);
+    const reported = slice?.getAgentInfo() ?? null;
+    const agent: HostAgentInfo = {
+      version: row.agent_version,
+      lastSeenAt: ctx.hosts.lastSeenAt(hostId),
+      actionsEnabled: row.actions_enabled === null ? null : row.actions_enabled === 1,
+      reportedAt: reported?.at ?? null,
+      droppedLogLines: reported?.info.droppedLogLines ?? 0,
+      bufferBytes: reported?.info.bufferBytes ?? 0,
+      collectors: reported?.info.collectors ?? [],
+    };
+    return {
+      hostId,
+      host: slice?.getHost() ?? null,
+      series: slice?.getHostSeries() ?? { ts: [], cpuPct: [], memPct: [], netRxBps: [], netTxBps: [] },
+      collectors: [],
+      monitor: ctx.health.snapshot(),
+      agent,
+    };
+  });
 }

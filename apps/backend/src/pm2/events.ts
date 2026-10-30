@@ -2,7 +2,10 @@ import type { Pm2EventPacket } from './types';
 
 export interface PendingEvent {
   ts: number;
+  /** The PM2 name on host 1; for a container event the service's source key. */
   name: string;
+  /** Set for events of agent hosts, whose names are not PM2 names on host 1. */
+  serviceId?: number;
   pmId: number | null;
   event: string;
   detail: Record<string, unknown> | null;
@@ -47,6 +50,16 @@ export class ProcessEvents {
     if (p.event === 'exit') {
       this.lastExits.set(p.name, { at: p.at, code: p.exitCode, signal: p.signal });
     }
+    this.buf.push(e);
+    if (this.buf.length > MAX_PENDING) {
+      this._dropped += this.buf.length - MAX_PENDING;
+      this.buf.splice(0, this.buf.length - MAX_PENDING);
+    }
+    this.onEvent?.(e);
+  }
+
+  /** A container event from an agent host, already resolved to its service (M2). */
+  addForService(e: PendingEvent & { serviceId: number }): void {
     this.buf.push(e);
     if (this.buf.length > MAX_PENDING) {
       this._dropped += this.buf.length - MAX_PENDING;

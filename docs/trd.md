@@ -530,7 +530,7 @@ Public, outside `/api/v1`, on the existing Fastify server, in its own scope: no 
 
 Audit: `host_created`, `host_updated`, `host_enrolled`, `host_token_rotated`, `host_revoked`, `agent_version_rejected`; remote actions add `service_action_requested` (14.7).
 
-**As built (M1).** `apps/backend/src/hosts/ingest.ts` and `src/hosts/repo.ts`; Hosts admin API under `/api/v1/hosts` (`src/routes/hosts.ts`). The checks run in this order: `Origin` (403), declared `Content-Length` above the endpoint limit (413), token (401), `X-Agent-Version` (400 when missing, 426 below `hosts.min_agent_version`), rate (429); then the body is read with the limit applied to the compressed bytes and again while inflating. Tokens are 32 random bytes in base64url; lookups use the SHA-256 hash, kept in memory. A host's `last_seen_at` is exact in memory and written at most once a minute. Metrics are stored at arrival time (backend-schema.md 13.6). Nginx removes the `Cookie` header on `/agent/` (`runbook-nginx.md`).
+**As built (M1).** `apps/backend/src/hosts/ingest.ts` and `src/hosts/repo.ts`; Hosts admin API under `/api/v1/hosts` (`src/routes/hosts.ts`). The checks run in this order: `Origin` (403), declared `Content-Length` above the endpoint limit (413), token (401), `X-Agent-Version` (400 when missing, 426 below `hosts.min_agent_version`), rate (429); then the body is read with the limit applied to the compressed bytes and again while inflating. Tokens are 32 random bytes in base64url; lookups use the SHA-256 hash, kept in memory. A host's `last_seen_at` is exact in memory and written at most once a minute. Metrics are stored at arrival time (backend-schema.md 13.7). Nginx removes the `Cookie` header on `/agent/` (`runbook-nginx.md`).
 
 ### 14.4 Docker access through `cc-docker-proxy`
 
@@ -607,6 +607,7 @@ Rules:
 - `alert_incidents.host_id` is filled for filtering and grouping.
 - Service rules (`pm2.*`) apply to containers: down = not running; crash loop = restarts counted from events in 10 minutes; memory from stats. The category name stays `pm2`.
 - Host, Mongo and certificate rules apply per host; `nginx.5xx_rate` applies to Caddy traffic per service.
+- [Built, M2] The host rules and the three service rules (`PER_HOST_RULES` in `src/alerts/evaluators.ts`) judge host 1 from its collectors and each enrolled agent host from its last report while it is under 35 s old (`AGENT_HOST_FRESH_MS`). A stale local collector takes only host 1 out; an open incident whose target is no longer observed resolves only if its host was judged in that tick, so a silent agent host's incidents stay as they are (and are hidden by `host.silent`). Docker states map to `online` (running), `launching` (restarting), `stopping` (removing), `errored` (dead) and `stopped` (exited, paused, created).
 - New rules (all in existing categories, no CHECK rebuild): `host.silent`, `host.probe_failed`, `monitor.backup_stale`, `host.auth_failures_high` (`backend-schema.md` section 8).
 - Grouping: `host.silent` suppresses every other incident with the same `host_id` except `host.probe_failed`. A failing probe while the agent reports points at the network, NAT or gateway.
 - `host.pending_reboot` uses `/run/reboot-required` on Linux.
@@ -651,10 +652,10 @@ A collector on the Windows backend, per host, configured on the Hosts page:
 | Step | Scope | Main tests |
 |---|---|---|
 | M1 (merged, deployed, V26 passed) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
-| M2 | `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
+| M2 (monitor side in patch 0021) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
 | M3 | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
-| M4 | Migration `011`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
-| M5 | Migration `012`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |
+| M4 | Migration `012`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
+| M5 | Migration `013`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |
 | M6 | Host switcher everywhere, Hosts overview, per-host rule overrides, host in emails | Playwright with two hosts |
 
 ### 14.14 Open questions

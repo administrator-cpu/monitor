@@ -329,7 +329,7 @@ export class Persistence {
     );
     let n = 0;
     for (const e of events) {
-      const svc = this.services.getByPm2Name(e.name);
+      const svc = e.serviceId !== undefined ? this.services.get(e.serviceId) : this.services.getByPm2Name(e.name);
       if (!svc) continue; // events are only stored for known services
       stmt.run(e.ts, svc.id, e.pmId, e.event, e.detail ? JSON.stringify(e.detail) : null);
       n += 1;

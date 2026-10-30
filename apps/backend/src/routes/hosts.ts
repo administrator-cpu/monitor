@@ -148,6 +148,7 @@ export function hostRoutes(app: FastifyInstance, ctx: AppContext): void {
     try {
       const host = ctx.hosts.revoke(id);
       ctx.state.dropHost(id);
+      ctx.containers.dropHost(id);
       ctx.alerts.onHostRevoked(id);
       ctx.audit.write({
         event: 'host_revoked',
