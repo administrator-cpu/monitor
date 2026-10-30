@@ -1,5 +1,7 @@
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
-import { NodeAgent } from './agent';
+import path from 'node:path';
+import { NodeAgent, type TrackerStore } from './agent';
 import { EnrollError, MonitorClient } from './client';
 import { ConfigError, loadConfig } from './config';
 import { DockerClient } from './docker';
@@ -61,7 +63,9 @@ async function main(): Promise<void> {
     docker: config.dockerUrl ? new DockerClient(config.dockerUrl) : null,
     log,
     hostname: os.hostname(),
+    store: fileStore(path.join(config.stateDir, 'containers.json')),
   });
+  await agent.loadState();
   agent.start();
 
   const stop = (signal: string): void => {
@@ -71,6 +75,25 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
+}
+
+/** The tracker's state as JSON on the state volume, replaced atomically (write, then rename). */
+function fileStore(file: string): TrackerStore {
+  return {
+    load: () =>
+      fs.readFile(file, 'utf8').then(
+        (s) => JSON.parse(s) as unknown,
+        (e: NodeJS.ErrnoException) => {
+          if (e.code === 'ENOENT') return null;
+          throw e;
+        },
+      ),
+    save: async (snap) => {
+      const tmp = `${file}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(snap), { mode: 0o600 });
+      await fs.rename(tmp, file);
+    },
+  };
 }
 
 void main();

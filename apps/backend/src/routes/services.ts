@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  AGENT_HOST_FRESH_MS,
   LOCAL_HOST_ID,
+  type ProcessState,
   serviceActionSchema,
   servicePatchSchema,
   spanLabel,
@@ -23,6 +25,17 @@ import { ServiceConflictError } from '../pm2/services';
 const EVENTS_SHOWN = 50;
 const MAX_POINTS = 600;
 
+/**
+ * An agent host's process state, marked stale when its last container list is older than
+ * AGENT_HOST_FRESH_MS (the agent stopped, the host is down, or Docker could not be read), so the
+ * pages do not show the last figures as current. Host 1's states come from the PM2 collector,
+ * which has its own staleness alert.
+ */
+export function withStaleness(p: ProcessState | null, hostId: number, now: number): ProcessState | null {
+  if (!p || hostId === LOCAL_HOST_ID || now - p.updatedAt <= AGENT_HOST_FRESH_MS) return p;
+  return { ...p, stale: true };
+}
+
 function parseId(raw: unknown): number | null {
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -42,7 +55,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
     return {
       services: ctx.services.list(includeArchived, host).map((r) => ({
         ...ctx.services.toDto(r),
-        process: ctx.state.getProcessState(r.id),
+        process: withStaleness(ctx.state.getProcessState(r.id), r.host_id, ctx.now()),
         git: r.git_repo ? ctx.git.badge(r.id) : null,
       })),
     };
@@ -76,7 +89,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
         : null,
       app: ctx.state.app.get(row.id, ctx.now()),
       appSeries: ctx.state.app.series(row.id),
-      process: ctx.state.getProcessState(row.id),
+      process: withStaleness(ctx.state.getProcessState(row.id), row.host_id, ctx.now()),
       series: ctx.state.getServiceSeries(row.id),
       events,
       openIncidents: ctx.alertRepo.firing().filter((i) => i.service_id === row.id).length,

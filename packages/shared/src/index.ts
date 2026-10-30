@@ -519,9 +519,20 @@ export interface ProcessState {
   /** Sum of PM2 restart counters across instances. */
   restarts: number;
   uptimeS: number;
+  /**
+   * The start time behind `uptimeS` is only known to the unit Docker's "Up 6 days" text gives
+   * (a container the agent has not seen start); shown as "~6d". Absent for exact uptimes.
+   */
+  uptimeApprox?: boolean;
   lastExit?: { at: number; code: number | null; signal: string | null };
   /** Containers with a health check (agent hosts); absent for PM2 processes. */
   health?: 'healthy' | 'unhealthy' | 'starting' | null;
+  /**
+   * An agent host's container that has had no report for over `AGENT_HOST_FRESH_MS` (agent
+   * stopped, host down, Docker unreadable): the figures are the last ones known, not current.
+   * Set by the API when it answers; never stored.
+   */
+  stale?: boolean;
 }
 
 export type ServiceKind = 'pm2' | 'container' | 'pseudo';
@@ -1074,6 +1085,33 @@ export function capRanges(presets: readonly RangeOption[], maxMs: number | undef
 
 export const LOG_SEARCH_MAX_CONTEXT = 5;
 
+/**
+ * Chart data with a null point in every gap, so a line stops where no sample was taken (a stopped
+ * agent, a monitor restart) instead of joining the two sides. A gap is a step longer than
+ * `factor` times the usual (median) step and at least `minGapS`. `data[0]` holds the times in
+ * seconds, ascending; the series follow. Data without a gap is returned unchanged.
+ */
+export type ChartColumns = ReadonlyArray<ArrayLike<number | null | undefined>>;
+export function breakGaps(data: ChartColumns, factor = 3, minGapS = 30): ChartColumns {
+  const ts = data[0];
+  if (!ts || ts.length < 3) return data;
+  const steps: number[] = [];
+  for (let i = 1; i < ts.length; i++) steps.push((ts[i] as number) - (ts[i - 1] as number));
+  const sorted = [...steps].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)]!;
+  const limit = Math.max(minGapS, median * factor);
+  if (!steps.some((d) => d > limit)) return data;
+  const out: (number | null)[][] = data.map(() => []);
+  for (let i = 0; i < ts.length; i++) {
+    if (i > 0 && steps[i - 1]! > limit) {
+      out[0]!.push((ts[i - 1] as number) + median);
+      for (let k = 1; k < data.length; k++) out[k]!.push(null);
+    }
+    for (let k = 0; k < data.length; k++) out[k]!.push((data[k]![i] ?? null) as number | null);
+  }
+  return out;
+}
+
 export const logSearchSchema = z.object({
   /** PM2 names of the services to search, or `_nginx` / `_monitor`. At least one, at most 10. */
   services: z.array(z.string().min(1).max(200)).min(1).max(10),
@@ -1345,6 +1383,8 @@ export const agentContainerSchema = z
     cpuPct: nonNegF,
     memBytes: nonNegF,
     startedAt: epochMs.nullable(),
+    /** `startedAt` comes from Docker's rounded "Up …" text, not a start event (agent 0.2.1+). */
+    startedApprox: z.boolean().optional(),
     /** A container of the agent's own compose project (the agent and its Docker proxy). */
     own: z.boolean().optional(),
   })

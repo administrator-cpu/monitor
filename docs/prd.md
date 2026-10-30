@@ -41,7 +41,7 @@ v2 used "Delivered" for Parts 0, A, B and C. They are in `main` since 2026-10-09
 | Part B | Resend delivery counts and bounce alert | Built (`e31724b`) | `email.test.ts` |
 | Part C | Restart, stop, start of PM2 services with `can_operate` | Built (`e31724b`) | `actions.test.ts` |
 | Audit fixes (H1 to H9) | Gaps found in the v3 review | Merged (PRs #3 to #8); server steps open | `implementation-plan.md` phase 10.5 |
-| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 merged (PR #11, patch 0016); M2 code done (patches 0021 to 0023), on the server after V28; M3 to M6 planned | Section 16; `hosts.test.ts`, `containers.test.ts`, `apps/node-agent/test`, `apps/docker-proxy/test` |
+| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 merged (PR #11, patch 0016); M2 merged (PR #15) and running on `acs-prod` since 2026-10-30 (V28 passed), fixes in patch 0024; M3 to M6 planned | Section 16; `hosts.test.ts`, `containers.test.ts`, `apps/node-agent/test`, `apps/docker-proxy/test` |
 | TOTP, alert channels other than email | | Not started | Section 11 |
 
 Test run on `main` for v3: 364 backend, 42 watchdog and 15 agent tests pass; the typecheck of all packages is clean.

@@ -8,6 +8,7 @@ import {
   healthOf,
   statsFigures,
   upForSeconds,
+  upRange,
 } from '../src/docker';
 
 const labels = (project: string, service: string) => ({
@@ -112,6 +113,8 @@ describe('Docker parsing', () => {
       startedAt: now - 1000, // seen in an event: exact
     });
     expect(by.get('acs/genieacs-cwmp')!.startedAt).toBe(now - 3_600_000); // from "Up About an hour"
+    expect(by.get('acs/genieacs-cwmp')!.startedApprox).toBe(true);
+    expect(by.get('acs/api')!.startedApprox).toBeUndefined(); // from an event
     expect(by.get('acs/cpe-sim')).toMatchObject({ state: 'exited', instancesRunning: 0, startedAt: null, restartsTotal: 3, cpuPct: 0 });
     expect(by.get('acs/mongo')!.health).toBe('healthy');
     expect(by.get('cc-agent/cc-node-agent')!.own).toBe(true);
@@ -195,5 +198,77 @@ describe('EventTracker', () => {
     t.handle(ev('a9', 'destroy'), 0);
     t.handle(ev('a9', 'start'), 0);
     expect(t.restarts.get('acs/cpe-sim')).toBeUndefined();
+  });
+});
+
+describe('upRange', () => {
+  it('gives the seconds each "Up …" text stands for, as go-units rounds them', () => {
+    const H = 3600;
+    expect(upRange('Up Less than a second')).toEqual([0, 1]);
+    expect(upRange('Up 30 seconds')).toEqual([30, 31]);
+    expect(upRange('Up About a minute')).toEqual([60, 120]);
+    expect(upRange('Up 5 minutes (healthy)')).toEqual([300, 360]);
+    expect(upRange('Up About an hour')).toEqual([H, 1.5 * H]);
+    expect(upRange('Up 3 hours')).toEqual([2.5 * H, 3.5 * H]);
+    expect(upRange('Up 6 days')).toEqual([143.5 * H, 167.5 * H]);
+    expect(upRange('Up 2 weeks')).toEqual([335.5 * H, 503.5 * H]);
+    expect(upRange('Up 1 year')).toEqual([8760 * H, 17_520 * H]);
+    expect(upRange('Exited (0) 1 minute ago')).toBeNull();
+  });
+});
+
+describe('EventTracker state across a restart of the agent', () => {
+  const lbl = { 'com.docker.compose.project': 'acs', 'com.docker.compose.service': 'cpe-sim' };
+  const now = 1_800_000_000_000;
+  const tracker = () => new EventTracker((p) => p === 'acs');
+  const run = (t: EventTracker, action: string, id: string, at: number) =>
+    t.handle({ Type: 'container', Action: action, Actor: { ID: id, Attributes: lbl }, timeNano: at * 1e6 }, at);
+
+  it('saves and restores counts, start times and dead containers; ignores malformed files', () => {
+    const a = tracker();
+    run(a, 'die', 'a9', now - 120_000);
+    run(a, 'start', 'a9', now - 105_000);
+    run(a, 'die', 'b1', now - 50_000);
+    expect(a.dirty).toBe(true);
+    const snap = JSON.parse(JSON.stringify(a.snapshot()));
+    expect(snap).toEqual({ v: 1, startedAt: { a9: now - 105_000 }, restarts: { 'acs/cpe-sim': 1 }, died: ['b1'] });
+    const b = tracker();
+    expect(b.restore(snap)).toBe(true);
+    expect(b.startedAt.get('a9')).toBe(now - 105_000);
+    expect(b.restarts.get('acs/cpe-sim')).toBe(1);
+    // A start of the container that was dead counts, as before the restart.
+    run(b, 'start', 'b1', now);
+    expect(b.restarts.get('acs/cpe-sim')).toBe(2);
+    for (const bad of [null, 'x', { v: 2 }, { v: 1, startedAt: {}, restarts: {} }]) expect(tracker().restore(bad)).toBe(false);
+    const c = tracker();
+    c.restore({ v: 1, startedAt: { a: 'soon', b: -1, c: now }, restarts: { k: 1.5, j: 2 }, died: [3, 'd'] });
+    expect([...c.startedAt]).toEqual([['c', now]]);
+    expect([...c.restarts]).toEqual([['j', 2]]);
+  });
+
+  it('works out what happened while it was away from the first container list', () => {
+    const t = tracker();
+    t.restore({
+      v: 1,
+      startedAt: { kept: now - 125_000, restarted: now - 3 * 86_400_000, stopped: now - 600_000, gone: now - 60_000 },
+      restarts: {},
+      died: ['revived', 'stilldead', 'removed'],
+    });
+    const c = (Id: string, State: string, Status: string): DockerContainer => ({ Id, State, Status, Labels: lbl });
+    t.dirty = false;
+    t.reconcile(
+      [
+        c('kept', 'running', 'Up 2 minutes'), // fits: exact start kept
+        c('restarted', 'running', 'Up 4 minutes'), // saved 3 days ago: restarted meanwhile
+        c('stopped', 'exited', 'Exited (0) 1 minute ago'),
+        c('revived', 'running', 'Up 30 seconds'),
+        c('stilldead', 'exited', 'Exited (1) 2 hours ago'),
+      ],
+      now,
+    );
+    expect([...t.startedAt]).toEqual([['kept', now - 125_000]]);
+    expect(t.restarts.get('acs/cpe-sim')).toBe(2); // "restarted" and "revived"
+    expect(t.snapshot().died.sort()).toEqual(['stilldead', 'stopped']);
+    expect(t.dirty).toBe(true);
   });
 });

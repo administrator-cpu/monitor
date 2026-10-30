@@ -10,12 +10,12 @@ import { ActionsCard } from '@/components/ActionsCard';
 import { GitCard } from '@/components/GitCard';
 import { HistoryPanel, IncidentTimeline } from '@/components/History';
 import { LogViewer } from '@/components/LogViewer';
-import { processLabel, StatusDot } from '@/components/ServiceStatus';
+import { hasFigures, processLabel, StatusDot, uptimeText } from '@/components/ServiceStatus';
 import { PageHead, Shell } from '@/components/Shell';
 import { UPlotChart } from '@/components/UPlotChart';
 import { api, ApiError, errorMessage, fetcher } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { bytes, dateTime, duration, pct } from '@/lib/format';
+import { bytes, dateTime, pct } from '@/lib/format';
 import { useIsFresh, useLive } from '@/lib/live';
 
 const PCT = (v: number) => `${Math.round(v)}%`;
@@ -323,9 +323,9 @@ function Detail() {
             </div>
           )}
         </section>
-        <section className="card tile" aria-label="CPU"><h2>CPU</h2><div className="value num">{p && p.instances > 0 ? pct(p.cpuPct) : '—'}</div></section>
-        <section className="card tile" aria-label="Memory"><h2>Memory</h2><div className="value num">{p && p.instances > 0 ? bytes(p.memBytes) : '—'}</div></section>
-        <section className="card tile" aria-label="Uptime"><h2>Uptime</h2><div className="value num">{p && p.instances > 0 ? duration(p.uptimeS) : '—'}</div></section>
+        <section className="card tile" aria-label="CPU"><h2>CPU</h2><div className="value num">{hasFigures(p) ? pct(p.cpuPct) : '—'}</div></section>
+        <section className="card tile" aria-label="Memory"><h2>Memory</h2><div className="value num">{hasFigures(p) ? bytes(p.memBytes) : '—'}</div></section>
+        <section className="card tile" aria-label="Uptime"><h2>Uptime</h2><div className="value num">{uptimeText(p)}</div></section>
         <section className="card tile" aria-label="Restarts"><h2>Restarts</h2><div className="value num">{p ? p.restarts : '—'}</div></section>
       </div>
 

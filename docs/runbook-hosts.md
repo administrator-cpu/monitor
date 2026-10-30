@@ -1,6 +1,6 @@
 # Runbook: remote hosts on the monitor (phase 11, M1 and M2)
 
-What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: V27 before merging patch 0021 (section 1), then the agent on the Ubuntu server (section 5, "Adding a host").
+What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: migration `011` (V27, applied by the PR #15 deploy 2026-10-30), then the agent on the Ubuntu server (section 5, "Adding a host"; done on `acs-prod` 2026-10-30, V28 passed).
 
 ## 1. Before merging: a migration on a copy (V25 for `010`)
 
@@ -84,9 +84,9 @@ The agent and its Docker proxy run as one compose project, `cc-agent`, on the mo
 
 ### 5.1 Once, on GitHub: the images
 
-After patches 0022 and 0023 are merged, the **Images** workflow (Actions tab) builds both images and publishes them to `ghcr.io/administrator-cpu/cc-node-agent` and `ghcr.io/administrator-cpu/cc-docker-proxy`, tagged `latest`, the version (`0.2.0`) and `sha-<commit>`. Its summary shows the digests.
+After patches 0022 and 0023 are merged, the **Images** workflow (Actions tab) builds both images and publishes them to `ghcr.io/administrator-cpu/cc-node-agent` and `ghcr.io/administrator-cpu/cc-docker-proxy`, tagged `latest`, the version (`0.2.1` for the agent from patch 0024, `0.2.0` for the proxy) and `sha-<commit>`. Its summary shows the digests.
 
-New packages start **private**. Either:
+New packages start **private**. (Both were made public on 2026-10-30.) Either:
 - make them public (they contain no secret: the code is in this public repository): GitHub → your profile → **Packages** → `cc-node-agent` → **Package settings** → **Change visibility** → Public; the same for `cc-docker-proxy`. Then the server needs no login; or
 - keep them private and log in once on the server with the classic token that has only `read:packages`:
   ```bash
@@ -122,7 +122,7 @@ Compose reads `agent.env` itself, so every `docker compose` command needs `sudo`
 ### 5.4 Check (V28)
 
 1. `sudo docker compose ps`: both containers `running`. `sudo docker compose logs cc-node-agent`: `enrolled with the monitor` and `found the agent's own compose project` (`cc-agent`), then nothing more while all is well.
-2. Within a minute, **Hosts** shows `ubuntu-acs` online with agent `0.2.0`. On **Host**, the host picker (top right) → `ubuntu-acs`: CPU, memory, swap, uptime, the `/` disk with read and write rates, and the agent's collectors all `ok`. If the disk shows `—` for read/write, the agent could not read `/proc/1/mountinfo`; usage is still right. Note the disk percentage and compare with `df -h /` on the server: they should match.
+2. Within a minute, **Hosts** shows `ubuntu-acs` online with the agent's version (`0.2.1` from patch 0024). On **Host**, the host picker (top right) → `ubuntu-acs`: CPU, memory, swap, uptime, the `/` disk with read and write rates, and the agent's collectors all `ok`. If the disk shows `—` for read/write, the agent could not read `/proc/1/mountinfo`; usage is still right. Note the disk percentage and compare with `df -h /` on the server: they should match.
 3. **Services** → picker → `ubuntu-acs`: the nine `acs` services (`api`, `caddy`, `cpe-sim`, `dashboard`, `genieacs-cwmp`, `genieacs-fs`, `genieacs-nbi`, `genieacs-ui`, `mongo`) and the agent's own two, with CPU, memory and uptime.
 4. Service down and back:
    ```bash
@@ -143,7 +143,8 @@ Compose reads `agent.env` itself, so every `docker compose` command needs `sudo`
 
 ### 5.5 Later
 
-- **Update:** `cd ~/cc-agent && sudo docker compose pull && sudo docker compose up -d`. To stay on a release, put `CC_TAG=0.2.0` (or `sha-<commit>`) in `~/cc-agent/.env`. The agent never updates itself.
+- **Update:** `cd ~/cc-agent && sudo docker compose pull && sudo docker compose up -d`. To stay on a release, put `CC_TAG=0.2.1` (or `sha-<commit>`) in `~/cc-agent/.env`. The agent never updates itself. Update the monitor first: a newer agent may send fields an older monitor refuses (0.2.1 sends `startedApprox`, which the monitor accepts from patch 0024; until then its reports would get 400). After the update, `sudo docker compose logs cc-node-agent` shows `starting cc-node-agent` with the new version, and the Hosts page shows it within a minute.
+- **What the agent keeps** on its volume (`cc-agent-state`): the host token, a hash of the used enrollment token, and from 0.2.1 `containers.json` (restart counts and exact start times, so restarting the agent loses neither). `down -v` deletes all three.
 - **New token** (rotation, or after a revoke): **New token** on the Hosts page, replace `CC_ENROLL_TOKEN` in `/etc/cc-agent/agent.env`, `sudo docker compose up -d --force-recreate cc-node-agent`. The agent enrolls again and the old host token stops working.
 - **Remove:** `sudo docker compose down -v` (also deletes the stored host token), `sudo rm -r /etc/cc-agent`, then **Revoke** on the Hosts page. The host's history stays on the monitor.
 - **Outside probes (M4):** the monitor will check `acs.thediv.in` (`154.49.142.251`) on ports 7547, 443 and 80 from the Windows VPS. Nothing to set up yet.
