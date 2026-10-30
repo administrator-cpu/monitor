@@ -371,6 +371,10 @@ function AgentHost({ hostId }: { hostId: number }) {
               <dd>{timeAgo(agent.lastSeenAt)}</dd>
               <dt>Remote actions</dt>
               <dd>{agent.actionsEnabled === null ? '—' : agent.actionsEnabled ? 'allowed by the agent (not used before M5)' : 'off on the agent'}</dd>
+              <dt>Log lines dropped</dt>
+              <dd>{agent.droppedLogLines.toLocaleString()} <span className="muted">since the agent started (over the per-container limit, or from a full buffer)</span></dd>
+              <dt>Log buffer</dt>
+              <dd>{agent.bufferBytes > 0 ? `${bytes(agent.bufferBytes)} waiting to be sent` : 'empty'}</dd>
             </dl>
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table>

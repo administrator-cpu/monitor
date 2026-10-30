@@ -7,7 +7,9 @@ import {
   AGENT_VERSION_HEADER,
   agentEnrollSchema,
   agentEventsSchema,
+  agentLogsSchema,
   agentMetricsSchema,
+  type AgentLogs,
   type AgentMetrics,
 } from '@cc/shared';
 import { NodeAgent, UNAUTHORIZED_WAIT_MS } from '../src/agent';
@@ -56,6 +58,10 @@ async function fakeMonitor(opts: { status?: (route: string) => number; retryAfte
     }
     if (route === 'metrics') agentMetricsSchema.parse(body);
     if (route === 'events') agentEventsSchema.parse(body);
+    if (route === 'logs') {
+      agentLogsSchema.parse(body);
+      return res.end(JSON.stringify({ excluded: ['acs/caddy'], linesPerS: 200 }));
+    }
     res.statusCode = 204;
     res.end();
   });
@@ -67,6 +73,7 @@ async function fakeDocker(initial = ACS) {
   const list = initial.map((c) => ({ ...c }));
   const streams: import('node:http').ServerResponse[] = [];
   const paths: string[] = [];
+  const logQueries: string[] = [];
   const server = await serve((req, res) => {
     const u = new URL(req.url ?? '/', 'http://x');
     paths.push(u.pathname);
@@ -92,12 +99,26 @@ async function fakeDocker(initial = ACS) {
       streams.push(res);
       return;
     }
+    const l = /^\/containers\/([^/]+)\/logs$/.exec(u.pathname);
+    if (l) {
+      logQueries.push(`${l[1]} ${u.search}`);
+      res.setHeader('content-type', 'application/vnd.docker.multiplexed-stream');
+      res.writeHead(200);
+      const body = Buffer.from(`2026-10-30T12:00:01.000000001Z hello from ${l[1]}\n`);
+      const head = Buffer.alloc(8);
+      head[0] = 1;
+      head.writeUInt32BE(body.length, 4);
+      res.write(Buffer.concat([head, body]));
+      streams.push(res);
+      return;
+    }
     res.statusCode = 403;
     res.end();
   });
   return {
     ...server,
     paths,
+    logQueries,
     emit: (e: unknown) => streams.forEach((r) => r.write(JSON.stringify(e) + '\n')),
     setStatus: (id: string, status: string) => void (list.find((c) => c.Id === id)!.Status = status),
     waitForStream: async () => {
@@ -120,6 +141,9 @@ const configFor = (f: ReturnType<typeof procFixture>, over: Partial<AgentConfig>
   hostRun: f.hostRun,
   stateDir: path.join(f.dir, 'state'),
   intervalMs: 10_000,
+  logs: false,
+  logBufferBytes: 50 * 1024 * 1024,
+  logLinesPerS: null,
   ...over,
 });
 
@@ -252,6 +276,32 @@ describe('NodeAgent', () => {
       new Set(['/containers/json', '/containers/{id}/stats']),
     );
     expect(d.paths.filter((p) => p.endsWith('/stats'))).toHaveLength(12 - 1 - 1); // 13 listed, cpe-sim stopped, "other" and unlabelled not watched
+  });
+
+  it('follows the running containers’ logs and ships them; the monitor’s exclusions are honoured', async () => {
+    const { m, d, clock, f, deps } = await setup({ logs: true });
+    // Docker's clock and the agent's agree: lines are timestamped just after "now".
+    clock.t = Date.parse('2026-10-30T12:00:00Z');
+    const withLogs = new NodeAgent({ ...deps, logs: { bufferDir: path.join(f.dir, 'log-buffer'), bufferMaxBytes: 1_000_000 } });
+    cleanup.push(() => withLogs.stop());
+    await withLogs.loadState();
+    withLogs.start();
+    for (let i = 0; i < 100 && m.got.filter((g) => g.route === 'logs').length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 30));
+      if (i % 10 === 9) await withLogs.logs!.flush();
+    }
+    const sent = m.got.filter((g) => g.route === 'logs').flatMap((g) => (g.body as AgentLogs).batches);
+    expect(sent.find((b) => b.service === 'acs/api')).toMatchObject({ lines: [{ s: 'out', msg: expect.stringMatching(/^hello from /) }], dropped: 0 });
+    // Only running containers of watched projects, through the allowlisted path with the full query.
+    expect(d.logQueries.length).toBe(11 - 1);
+    expect(d.logQueries[0]).toMatch(/\?follow=1&stdout=1&stderr=1&timestamps=1&since=\d+\.000000000$/);
+    // The monitor excluded acs/caddy: it is no longer followed.
+    expect(withLogs.logs!.following).toHaveLength(9);
+    clock.t += 10_000;
+    await withLogs.tick();
+    const report = m.got.filter((g) => g.route === 'metrics').at(-1)!.body as AgentMetrics;
+    expect(report.agent!.collectors.find((c) => c.name === 'logs')).toMatchObject({ error: null });
+    expect(report.agent).toMatchObject({ droppedLogLines: 0, bufferBytes: 0 });
   });
 
   it('leaves out the containers when Docker cannot be read, and says so', async () => {

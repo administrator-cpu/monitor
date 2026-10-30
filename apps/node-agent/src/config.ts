@@ -22,6 +22,12 @@ export interface AgentConfig {
   hostRun: string;
   stateDir: string;
   intervalMs: number;
+  /** Follow and ship container logs (M3); `CC_LOGS=off` switches it off. */
+  logs: boolean;
+  /** The disk buffer for log batches while the monitor is unreachable. */
+  logBufferBytes: number;
+  /** `CC_LOG_LINES_PER_S`: overrides the monitor's per-container limit; null takes the monitor's. */
+  logLinesPerS: number | null;
 }
 
 export class ConfigError extends Error {}
@@ -65,6 +71,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
   const actions = (env.CC_ACTIONS ?? 'on').trim().toLowerCase();
   if (actions !== 'on' && actions !== 'off') throw new ConfigError('CC_ACTIONS must be on or off');
 
+  const logs = (env.CC_LOGS ?? 'on').trim().toLowerCase();
+  if (logs !== 'on' && logs !== 'off') throw new ConfigError('CC_LOGS must be on or off');
+  const bufferMb = Number(env.CC_LOG_BUFFER_MB ?? 50);
+  if (!Number.isFinite(bufferMb) || bufferMb < 1 || bufferMb > 1000) throw new ConfigError('CC_LOG_BUFFER_MB must be between 1 and 1000');
+
+  const rawLimit = env.CC_LOG_LINES_PER_S?.trim();
+  const limit = rawLimit ? Number(rawLimit) : null;
+  if (limit !== null && (!Number.isInteger(limit) || limit < 10 || limit > 2000)) {
+    throw new ConfigError('CC_LOG_LINES_PER_S must be a whole number from 10 to 2000');
+  }
+
   const dockerUrl = (env.CC_DOCKER_URL ?? 'http://cc-docker-proxy:2375').trim();
   const interval = Number(env.CC_INTERVAL_S ?? 10);
   if (!Number.isFinite(interval) || interval < 2 || interval > 60) throw new ConfigError('CC_INTERVAL_S must be between 2 and 60');
@@ -83,5 +100,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
     hostRun: env.CC_HOST_RUN ?? '/host-run',
     stateDir: env.CC_STATE_DIR ?? '/var/lib/cc-agent',
     intervalMs: Math.round(interval * 1000),
+    logs: logs === 'on',
+    logBufferBytes: Math.round(bufferMb * 1024 * 1024),
+    logLinesPerS: limit,
   };
 }

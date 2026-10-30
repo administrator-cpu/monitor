@@ -1,4 +1,4 @@
-import { LOCAL_HOST_ID, type ServiceDto, type ServiceKind } from '@cc/shared';
+import { LOCAL_HOST_ID, logKeyOf, type ServiceDto, type ServiceKind } from '@cc/shared';
 import type { Db } from '../db';
 
 export interface ServiceRow {
@@ -150,6 +150,7 @@ export class ServicesRepo {
       gitRepo?: string | null;
       gitBranch?: string;
       gitPath?: string | null;
+      logExcluded?: boolean;
     },
     livePm2Names: ReadonlySet<string>,
   ): ServiceRow {
@@ -175,13 +176,14 @@ export class ServicesRepo {
       git_repo: patch.gitRepo === undefined ? row.git_repo : patch.gitRepo,
       git_branch: patch.gitBranch ?? row.git_branch,
       git_path: patch.gitPath === undefined ? row.git_path : patch.gitPath,
+      log_excluded: patch.logExcluded === undefined ? row.log_excluded : patch.logExcluded ? 1 : 0,
     };
     this.db
       .prepare(
         `UPDATE services SET name = ?, public_url = ?, nginx_match = ?, notes = ?, is_archived = ?,
-           git_repo = ?, git_branch = ?, git_path = ? WHERE id = ?`,
+           git_repo = ?, git_branch = ?, git_path = ?, log_excluded = ? WHERE id = ?`,
       )
-      .run(next.name, next.public_url, next.nginx_match, next.notes, next.is_archived, next.git_repo, next.git_branch, next.git_path, id);
+      .run(next.name, next.public_url, next.nginx_match, next.notes, next.is_archived, next.git_repo, next.git_branch, next.git_path, next.log_excluded, id);
     const updated = { ...row, ...next };
     this.put(updated);
     return updated;
@@ -207,6 +209,8 @@ export class ServicesRepo {
       gitBranch: r.git_branch,
       gitPath: r.git_path,
       stale: this.now() - r.last_seen_at > staleMs,
+      logKey: logKeyOf(r.host_id, r.source_key),
+      logExcluded: r.log_excluded === 1,
     };
   }
 }

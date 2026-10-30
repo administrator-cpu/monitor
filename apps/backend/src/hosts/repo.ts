@@ -59,6 +59,8 @@ const emptyCounts = (): HostIngestCounts => ({
   rejected: 0,
   logLines: 0,
   eventCount: 0,
+  logDropped: 0,
+  logIgnored: 0,
 });
 
 /**

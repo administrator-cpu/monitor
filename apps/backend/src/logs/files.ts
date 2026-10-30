@@ -70,18 +70,39 @@ export interface LogFile {
   gz: boolean;
 }
 
-/** Every log file under the root (one directory level), by file name only. */
+/** Top-level folders that hold the folders of another host's services (`@<host name>`). */
+export const HOST_DIR_PREFIX = '@';
+
+/** The folder of a host's service: `@<host name>/<project>.<service>`, both parts made safe. */
+export function hostServiceDir(hostName: string, sourceKey: string): string {
+  return `${HOST_DIR_PREFIX}${safeDirName(hostName)}/${safeDirName(sourceKey.replace('/', '.'))}`;
+}
+
+const subdirs = async (dir: string): Promise<string[]> => {
+  try {
+    return (await fs.readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Every service folder under the root, as `dir` ids relative to it: one level for host 1 and the
+ * special folders, two for other hosts (`@<host>/<service>`, always with a forward slash).
+ */
+export async function listLogDirs(root: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const d of await subdirs(root)) {
+    if (!d.startsWith(HOST_DIR_PREFIX)) out.push(d);
+    else for (const sub of await subdirs(path.join(root, d))) out.push(`${d}/${sub}`);
+  }
+  return out;
+}
+
+/** Every log file under the root, by file name only. */
 export async function listLogFiles(root: string): Promise<LogFile[]> {
   const out: LogFile[] = [];
-  let dirs: string[];
-  try {
-    dirs = (await fs.readdir(root, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-  } catch {
-    return out;
-  }
-  for (const dir of dirs) {
+  for (const dir of await listLogDirs(root)) {
     let names: string[];
     try {
       names = await fs.readdir(path.join(root, dir));
@@ -168,15 +189,7 @@ export async function deleteOldestHour(root: string, now: number): Promise<numbe
 
 /** Stale `.tmp` files from an interrupted compression. */
 export async function removeTempFiles(root: string): Promise<void> {
-  let dirs: string[];
-  try {
-    dirs = (await fs.readdir(root, { withFileTypes: true }))
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-  } catch {
-    return;
-  }
-  for (const dir of dirs) {
+  for (const dir of await listLogDirs(root)) {
     let names: string[] = [];
     try {
       names = await fs.readdir(path.join(root, dir));

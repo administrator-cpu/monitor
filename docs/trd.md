@@ -58,6 +58,7 @@ Phase 11 M1 (patch 0016, merged as PR #11): 434 backend tests pass with Nginx 1.
 |---|---|---|
 | v1 | 2026-10-08 | Single Windows VPS, read-only, NSSM |
 | v2 | 2026-10-29 | Recorded the build, Parts 0 to C, proposed multi-host |
+| v3 | 2026-10-30 | Phase 11 M3 built (patch 0026): 14.5 and 14.6 as built; the line limit setting is `hosts.log_lines_per_s` (not `agent.`, which is the in-app agent's hidden section); `CC_LOGS` and `CC_LOG_BUFFER_MB` in 9.5 |
 | v3 | 2026-10-30 | Phase 11 M1 built: 14.3 and 14.6 as built, `host.silent` moved from M2 to M1 (14.13) |
 | v3 | 2026-10-29 | Facts from the code: port 4111, migrations `008` and `009`, webhook status codes, 10-minute email buckets, git flags, action codes. Gaps from the review marked [Gap]. Multi-host redesigned: host namespaces for the agent, an allowlisting Docker proxy without inspect, Caddy field filtering, relay and Mongo over the compose network, persistent agent state, agent-pulled remote actions, fingerprints that leave host 1 unchanged, migrations `010` to `012` |
 
@@ -379,7 +380,9 @@ Today: `TARGET_URL`, `CRON_TOKEN`, `RESEND_API_KEY`, `ALERT_FROM`, `ALERT_TO`, o
 | `CC_BACKUP_DIR` | Mounted backup folder |
 | `CC_RELAY_TOKEN` | Token `@cc/agent` in the API uses for the relay (24+ characters) |
 | `CC_ACTIONS` | `on` (default) or `off` |
-| `CC_LOG_LINES_PER_S` | Default from the monitor; local override |
+| `CC_LOG_LINES_PER_S` | Default from the monitor (`hosts.log_lines_per_s`); local override, 10 to 2000 |
+| `CC_LOGS` | `on` (default) or `off`: follow and ship container logs (M3) |
+| `CC_LOG_BUFFER_MB` | Disk buffer for log batches while the monitor is unreachable, default 50 |
 
 Secrets (`CC_ENROLL_TOKEN`, `CC_MONGO_URI`, `CC_RELAY_TOKEN`) live in an env file readable by root only. The host token is written by the agent to its state volume (14.3).
 
@@ -576,9 +579,11 @@ Client addresses read from `auth.log` and `fail2ban.log` are never stored or sen
 
 **As built (M2, patch 0022; 0.2.1 in patch 0024).** `apps/node-agent` (`@cc/node-agent` 0.2.1), Node 22, no runtime dependencies (only types from `@cc/shared`). One report per `CC_INTERVAL_S` (10 s): CPU, per-core CPU, network and disk I/O are averages over the interval from `/proc` counters (not one instant); memory used is `MemTotal - MemAvailable`; disk usage by `statfs` under `/host`, with total = used + available to users, so the share matches `df`; disk I/O from `/proc/diskstats` through the mount's device in `/proc/1/mountinfo`. Containers: `GET /containers/json?all=1` filtered on the compose project label, one-shot stats for running containers (4 at a time), grouped by `<project>/<service>` with the worst state and health of the replicas, the youngest uptime (from events, else the "Up …" text) and summed CPU and memory; the agent's own project is found from its own container (hostname = container id) or `CC_OWN_PROJECT`, and its containers carry `own: true`. Events: the Docker event stream, reconnecting with up to 30 s between tries; `die`, `start`, `stop`, `restart`, `oom` and `health_status` go to `/agent/v1/events` within 0.5 s with only the exit code or health status; a start after a die of the same container counts one restart. From 0.2.1 the restart counts, the start times seen in events and the containers seen to die are saved in `/var/lib/cc-agent/containers.json` (at most every 2 s after a change, and on stop) and restored on start; the first container list then settles what happened while the agent was away (a saved start that no longer fits the "Up …" text, read as a range the way go-units rounds it, with 90 s slack, counts one restart; a container saved as dead and now running counts one). A start time taken from the "Up …" text is sent with `startedApprox: true`; the monitor passes it on as `uptimeApprox` and the pages show `~6d`. The host token is in `/var/lib/cc-agent/token` (mode 600); the enrollment token is never written, only a hash marking it used, so a restart does not enroll again and a new token in the env file does. Answers: 401 → wait 10 minutes; 426 → an hour; 429 → `Retry-After`; unreachable → 10, 20, 40 s, then every 60 s; a refused report (400, 413) is logged once a minute. Reports that could not be sent are dropped (they are snapshots); up to 1000 events wait.
 
+**As built (M3, patch 0026; agent 0.3.0).** As described below, with these details: the agent follows each container from a saved position (Docker's timestamp, in `/var/lib/cc-agent/log-positions.json`), so restarts and closed streams lose and repeat nothing, reaching back at most an hour; the per-container limit comes from the monitor's `hosts.log_lines_per_s` (in each answer to `/agent/v1/logs`, `{ excluded, linesPerS }`), with `CC_LOG_LINES_PER_S` on the host winning; the buffer is `/var/lib/cc-agent/log-buffer/` (`CC_LOG_BUFFER_MB`, 50), drained at five requests a second when the monitor answers; `CC_LOGS=off` switches shipping off. Lines over the limit or lost from a full buffer reach the monitor as counts, which it writes into the service's log as a `[monitor] N lines dropped` line and shows on the service and Host pages. Details in `implementation-plan.md`, M3.
+
 **Service identity.** A container belongs to service `<compose service>` in project `<compose project>`; its key is `<project>/<service>` (e.g. `acs/genieacs-cwmp`), its display name the compose service. Scaled replicas are instances of one service, like PM2 cluster instances. Discovery and auto-archive follow 4.1 using the container list; a stopped container is still listed. Containers without compose labels are ignored.
 
-**Logs.** 200 lines per second per container by default (`agent.log_lines_per_s`), with dropped counts; containers excluded in the UI are not followed. Lines longer than 64 KB are cut. While the monitor is unreachable, batches go to a 50 MB ring on the state volume; the oldest are dropped and counted when it is full.
+**Logs.** 200 lines per second per container by default (`hosts.log_lines_per_s`), with dropped counts; containers excluded in the UI are not followed. Lines longer than 64 KB are cut. While the monitor is unreachable, batches go to a 50 MB ring on the state volume; the oldest are dropped and counted when it is full.
 
 **Caddy stdout.** Caddy must write access logs to the file, not to stdout (PRD O6). The agent also drops any line from the Caddy container's log stream that parses as a Caddy access record, as a second safeguard.
 
@@ -586,7 +591,7 @@ Client addresses read from `auth.log` and `fail2ban.log` are never stored or sen
 
 - [Built, M1] `ServicesRepo` keys services by `(host_id, source_key)` instead of PM2 name; `source_key` is the PM2 name on host 1 and `<project>/<service>` on agent hosts. `list()` and `getByPm2Name()` mean host 1 unless another host or `'all'` is asked for, so the PM2, Nginx, GitHub and log-folder code is unchanged.
 - [Built, M1] The state store holds a `HostSlice` per host (`Map<hostId, HostSlice>`); host 1's slice is fed by the local collectors, an agent host's by its metrics. Processes are tagged with their host; `setProcesses` replaces one host's list only. Nginx, Mongo, TLS and Event Log state stay host 1 until M4.
-- Log folders: host 1 unchanged; other hosts under `LOG_ROOT\@<host name>\<project>.<service>\`.
+- [Built, M3] Log folders: host 1 unchanged; other hosts under `LOG_ROOT\@<host name>\<project>.<service>\`, each line in the file of its own hour. Retention, compression, the disk guard and search walk both levels. Search and the live tail name a stream by its log key: the PM2 name on host 1, `@<host id>/<project>/<service>` elsewhere.
 - `live` snapshots carry a host list plus the detail of the subscribed host, staying under 50 KB. [Built, M2: the host list (`hosts`, every host not revoked, with its status) feeds the switcher; the detail is still host 1's. The Host and Services pages read an agent host over REST every 10 s (`/host?host=<id>`, `/services?host=<id>`), which matches its 10 s reports. Subscribing to another host's detail comes with M6.]
 - [Built, M1] Rollup groups by host where the table has `host_id`; persistence writes `metrics_host` and `metrics_disk` per host; `GET /history/host?host=<id>` reads one host (host 1 by default).
 
@@ -659,7 +664,7 @@ A collector on the Windows backend, per host, configured on the Hosts page:
 |---|---|---|
 | M1 (merged, deployed, V26 passed) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
 | M2 (patches 0021 to 0023) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
-| M3 | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
+| M3 (patch 0026) | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
 | M4 | Migration `012`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
 | M5 | Migration `013`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |
 | M6 | Host switcher everywhere, Hosts overview, per-host rule overrides, host in emails | Playwright with two hosts |

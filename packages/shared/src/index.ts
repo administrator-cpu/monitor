@@ -111,6 +111,8 @@ export const servicePatchSchema = z
     nginxMatch: z.string().trim().max(200).nullable().optional(),
     notes: z.string().trim().max(1000).nullable().optional(),
     isArchived: z.boolean().optional(),
+    /** Container services only: stop (true) or resume (false) shipping this service's logs. */
+    logExcluded: z.boolean().optional(),
     /** GitHub repository as `owner/name`. */
     gitRepo: z
       .string()
@@ -559,6 +561,13 @@ export interface ServiceDto {
   gitPath: string | null;
   /** Not seen in PM2 within `pm2.stale_hours`. */
   stale: boolean;
+  /**
+   * The name of the service's log stream for search and live tail: the PM2 name on host 1,
+   * `@<host id>/<project>/<service>` for a container on another host (`logKeyOf`).
+   */
+  logKey: string;
+  /** Container services only: the agent does not ship this service's logs (M3). */
+  logExcluded: boolean;
 }
 
 export interface ServiceLive {
@@ -677,6 +686,11 @@ export interface ServiceDetailResponse {
   git: GitBadge | null;
   /** Whether Start, Stop and Restart are possible for this service at all (not who may press them). */
   operable: { ok: boolean; reason: string | null };
+  /**
+   * Container services: log lines received from the agent and lines it reported dropped over its
+   * per-container limit, since the monitor started (`since`). Null for PM2 services.
+   */
+  logs: { lines: number; dropped: number; since: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,6 +1263,10 @@ export interface HostIngestCounts {
   /** Log lines and events received; stored from M3 and M2. */
   logLines: number;
   eventCount: number;
+  /** Lines the agent reported dropped over its per-container limit or from a full buffer (M3). */
+  logDropped: number;
+  /** Lines not stored: for a service the monitor does not know or one excluded from shipping (M3). */
+  logIgnored: number;
 }
 
 export interface HostDto {
@@ -1493,6 +1511,31 @@ export const agentLogsSchema = z
   })
   .strict();
 export type AgentLogs = z.infer<typeof agentLogsSchema>;
+
+/** Lines per second per container the agent ships by default (`hosts.log_lines_per_s`). */
+export const AGENT_LOG_LINES_PER_S = 200;
+
+/**
+ * The answer to POST /agent/v1/logs from M3 (200). Before M3 the monitor answered 204 with no
+ * body, which an agent reads as "nothing excluded, the default limit".
+ */
+export interface AgentLogsResponse {
+  /** Service keys (`<project>/<service>`) whose logs the agent stops following. */
+  excluded: string[];
+  linesPerS: number;
+}
+
+/** The log stream name of a service: its PM2 name on host 1, `@<host id>/<source key>` elsewhere. */
+export function logKeyOf(hostId: number, sourceKey: string): string {
+  return hostId === LOCAL_HOST_ID ? sourceKey : `@${hostId}/${sourceKey}`;
+}
+
+/** The host and source key of a log key from `logKeyOf`; anything else is a host 1 name. */
+export function parseLogKey(key: string): { hostId: number; sourceKey: string } {
+  const m = /^@([1-9]\d{0,8})\/(.+)$/.exec(key);
+  if (m && Number(m[1]) !== LOCAL_HOST_ID) return { hostId: Number(m[1]), sourceKey: m[2]! };
+  return { hostId: LOCAL_HOST_ID, sourceKey: key };
+}
 
 /** POST /agent/v1/events, as containers change state. Stored in `process_events` (M2). */
 export const agentEventsSchema = z

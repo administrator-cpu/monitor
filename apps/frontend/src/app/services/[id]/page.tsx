@@ -242,6 +242,59 @@ function Runtime({ data, id }: { data: ServiceDetailResponse; id: string }) {
   );
 }
 
+/**
+ * A container's logs, shipped by its host's agent (phase 11 M3): the live tail, what arrived and
+ * what the agent dropped over its limit since the monitor started, and the admin's switch to stop
+ * shipping a noisy or sensitive container.
+ */
+function ContainerLogs({ detail, isAdmin, onChanged }: { detail: ServiceDetailResponse; isAdmin: boolean; onChanged: () => void }) {
+  const s = detail.service;
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  async function toggle() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api(`/services/${s.id}`, { method: 'PATCH', body: { logExcluded: !s.logExcluded } });
+      onChanged();
+    } catch (e) {
+      setProblem(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const stats = detail.logs;
+  return (
+    <>
+      {s.logExcluded ? (
+        <section className="card" aria-label="Logs">
+          <h2>Logs</h2>
+          <div className="empty" data-testid="logs-excluded">
+            Log shipping is off for this container: its host’s agent does not follow it and the monitor stores nothing from it.
+          </div>
+        </section>
+      ) : (
+        <LogViewer service={s.logKey} />
+      )}
+      <p className="sub" style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        {stats && (
+          <span data-testid="log-counts">
+            {stats.lines.toLocaleString()} lines received
+            {stats.dropped > 0 ? `, ${stats.dropped.toLocaleString()} dropped by the agent over its limit` : ''} since{' '}
+            {dateTime(stats.since)}.
+          </span>
+        )}
+        {isAdmin && (
+          <button type="button" className="btn" disabled={busy} onClick={() => void toggle()} data-testid="log-ship-toggle">
+            {s.logExcluded ? 'Ship this container’s logs' : 'Stop shipping this container’s logs'}
+          </button>
+        )}
+        {problem && <span className="banner crit" role="alert">{problem}</span>}
+      </p>
+    </>
+  );
+}
+
 function Detail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -406,12 +459,9 @@ function Detail() {
 
       <div style={{ marginTop: 14 }}>
         {s.kind === 'container' ? (
-          <section className="card" aria-label="Logs">
-            <h2>Logs</h2>
-            <div className="empty">Container logs arrive with phase 11 step M3.</div>
-          </section>
+          <ContainerLogs detail={data} isAdmin={isAdmin} onChanged={() => void mutate()} />
         ) : (
-          <LogViewer service={s.pm2Name} />
+          <LogViewer service={s.logKey} />
         )}
       </div>
 

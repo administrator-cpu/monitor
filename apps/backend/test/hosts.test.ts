@@ -697,7 +697,7 @@ describe('hosts and agent ingest', () => {
             'content-encoding': 'gzip',
           })
         ).statusCode,
-      ).toBe(204);
+      ).toBe(200);
       expect(
         (
           await push(t, token, 'events', {
@@ -731,6 +731,9 @@ describe('hosts and agent ingest', () => {
         rejected: 0,
         logLines: 2,
         eventCount: 1,
+        logDropped: 0,
+        // No metrics report has listed acs/api yet, so the monitor does not know the service.
+        logIgnored: 2,
       });
     });
   });

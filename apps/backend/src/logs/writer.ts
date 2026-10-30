@@ -143,8 +143,12 @@ export class LogWriter {
     return set;
   }
 
-  /** `text` is one complete JSON line including its trailing newline. */
-  enqueue(dir: string, text: string): void {
+  /**
+   * `text` is one complete JSON line including its trailing newline. It goes into the file of the
+   * current hour, or of the hour of `at` when given and not in the future (lines another host held
+   * back while the monitor was unreachable, so a search over their time finds them).
+   */
+  enqueue(dir: string, text: string, at?: number): void {
     if (!this.enabled) {
       this.skippedTotal += 1;
       return;
@@ -163,7 +167,8 @@ export class LogWriter {
       };
       this.streams.set(dir, s);
     }
-    const key = hourKey(this.now());
+    const now = this.now();
+    const key = hourKey(at !== undefined && at < now ? at : now);
     let seg = s.segments[s.segments.length - 1];
     if (!seg || seg.key !== key) {
       seg = { key, parts: [], count: 0 };

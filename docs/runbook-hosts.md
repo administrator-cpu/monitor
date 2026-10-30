@@ -1,6 +1,6 @@
-# Runbook: remote hosts on the monitor (phase 11, M1 and M2)
+# Runbook: remote hosts on the monitor (phase 11, M1 to M3)
 
-What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: migration `011` (V27, applied by the PR #15 deploy 2026-10-30), then the agent on the Ubuntu server (section 5, "Adding a host"; done on `acs-prod` 2026-10-30, V28 passed).
+What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: migration `011` (V27, applied by the PR #15 deploy 2026-10-30), then the agent on the Ubuntu server (section 5, "Adding a host"; done on `acs-prod` 2026-10-30, V28 passed). For M3: merge and deploy patch 0026, then agent 0.3.0 on the server and V29 (section 6).
 
 ## 1. Before merging: a migration on a copy (V25 for `010`)
 
@@ -144,7 +144,70 @@ Compose reads `agent.env` itself, so every `docker compose` command needs `sudo`
 ### 5.5 Later
 
 - **Update:** `cd ~/cc-agent && sudo docker compose pull && sudo docker compose up -d`. To stay on a release, put `CC_TAG=0.2.1` (or `sha-<commit>`) in `~/cc-agent/.env`. The agent never updates itself. Update the monitor first: a newer agent may send fields an older monitor refuses (0.2.1 sends `startedApprox`, which the monitor accepts from patch 0024; until then its reports would get 400). After the update, `sudo docker compose logs cc-node-agent` shows `starting cc-node-agent` with the new version, and the Hosts page shows it within a minute.
-- **What the agent keeps** on its volume (`cc-agent-state`): the host token, a hash of the used enrollment token, and from 0.2.1 `containers.json` (restart counts and exact start times, so restarting the agent loses neither). `down -v` deletes all three.
+- **What the agent keeps** on its volume (`cc-agent-state`): the host token, a hash of the used enrollment token, from 0.2.1 `containers.json` (restart counts and exact start times, so restarting the agent loses neither), and from 0.3.0 `log-positions.json` (where each container's log was left) and `log-buffer/` (at most 50 MB of log batches waiting for the monitor). `down -v` deletes all of it.
 - **New token** (rotation, or after a revoke): **New token** on the Hosts page, replace `CC_ENROLL_TOKEN` in `/etc/cc-agent/agent.env`, `sudo docker compose up -d --force-recreate cc-node-agent`. The agent enrolls again and the old host token stops working.
 - **Remove:** `sudo docker compose down -v` (also deletes the stored host token), `sudo rm -r /etc/cc-agent`, then **Revoke** on the Hosts page. The host's history stays on the monitor.
 - **Outside probes (M4):** the monitor will check `acs.thediv.in` (`154.49.142.251`) on ports 7547, 443 and 80 from the Windows VPS. Nothing to set up yet.
+
+## 6. Container logs (M3, V29)
+
+Patch 0026 changes the monitor (backend paths: it deploys) and the agent (0.3.0: the Images workflow publishes it). No migration, no new field in the agent's metrics, so the order does not matter: an 0.3.0 agent talking to a monitor without 0026 gets 204 and its lines are counted, not stored. Merge and deploy first anyway, so nothing is lost.
+
+### 6.1 Update the agent
+
+After the merge, wait until the Images workflow and the backend deploy are green and the dashboard shows the new commit. Then on `acs-prod`, **one command at a time**, waiting for each to finish:
+
+```bash
+ssh -p 35610 deploy@154.49.142.251
+```
+```bash
+cd ~/cc-agent
+```
+```bash
+sudo docker compose pull
+```
+(asks for the password; wait for both `Pulled`)
+```bash
+sudo docker compose up -d
+```
+```bash
+sudo docker compose logs --tail 5 cc-node-agent
+```
+
+Expected: `starting cc-node-agent` with `"version":"0.3.0"` and `"logs":"on, buffer 50 MB"`. The Hosts page shows 0.3.0 within a minute. The env file needs nothing new.
+
+### 6.2 Check (V29)
+
+1. **Lines arrive.** Services, host `ubuntu-acs`, `genieacs-cwmp`: the Logs card fills within a few seconds of the container writing, and the line under it counts "lines received". Log search: tick `genieacs-cwmp · ubuntu-acs`, Last 15 minutes, empty text, Search: the same lines. Note the time from a line being written to it showing (budget: under 5 s).
+2. **A burst is counted.** One command (the `cpe-sim` image has `sh`; if it says `executable file not found`, use another `acs` container that has it):
+   ```bash
+   sudo docker exec acs-cpe-sim-1 sh -c 'i=0; while [ $i -lt 1000 ]; do echo "v29 burst $i"; i=$((i+1)); done > /proc/1/fd/1'
+   ```
+   On the `cpe-sim` page: about 200 lines `v29 burst …`, then a red line `[monitor] … lines dropped by the agent on ubuntu-acs`; the count under the card says how many were dropped, and the Hosts page (Host, `ubuntu-acs`, Agent) shows "Log lines dropped".
+3. **A 10-minute outage loses nothing.** Cut only the agent's way out (the proxy and the containers are not touched; "Host silent" will open, which is expected):
+   ```bash
+   sudo docker network disconnect cc-agent_cc-egress cc-agent-cc-node-agent-1
+   ```
+   Note the time, then:
+   ```bash
+   sudo docker exec acs-cpe-sim-1 sh -c 'echo "v29 outage marker" > /proc/1/fd/1'
+   ```
+   Wait 10 minutes, then:
+   ```bash
+   sudo docker network connect cc-agent_cc-egress cc-agent-cc-node-agent-1
+   ```
+   Within a minute "Host silent" resolves; Log search for `v29 outage marker` on `cpe-sim · ubuntu-acs`, Last hour, finds it at the time it was written. If `disconnect` names a different network or container, `sudo docker network ls` and `sudo docker ps` show the names.
+4. **An excluded container ships nothing.** On the `caddy` page (admin): **Stop shipping this container's logs**. Within a second the agent logs `the monitor excluded services from log shipping`:
+   ```bash
+   sudo docker compose logs --tail 5 cc-node-agent
+   ```
+   A minute later, Log search on `caddy · ubuntu-acs`, Last 15 minutes: nothing after the switch. Switch it on again, or leave it off if Caddy's own lines are not wanted.
+5. **No Caddy access record on the monitor.** Log search, every `· ubuntu-acs` service, Last 24 hours, text `http.log.access`: no match. If the agent's log says `dropped Caddy access records from container stdout`, Caddy still writes access logs to stdout (O6, V23).
+6. **Budgets.** `sudo docker stats --no-stream` (agent under 150 MB, proxy under 20 MB).
+7. **The GenieACS line rate, a day later.** On the `genieacs-cwmp` page, the line under the Logs card: lines received and dropped since the monitor started. Lines divided by the seconds since then is the rate to record against TRD 14.12. The disk it takes, in PowerShell on the Windows VPS:
+   ```powershell
+   "{0:N1} MB" -f ((Get-ChildItem E:\monitor-logs\@ubuntu-acs -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+   ```
+8. Record the date and results as V29 in `implementation-plan.md` section 0.3.
+
+If something goes wrong, `CC_LOGS=off` in `/etc/cc-agent/agent.env` and `sudo docker compose up -d --force-recreate cc-node-agent` stops log shipping and keeps everything else; or pin the previous agent with `CC_TAG=0.2.1` in `~/cc-agent/.env` and `sudo docker compose up -d`.

@@ -15,7 +15,8 @@ export const INGEST_PREFIX = '/agent/v1';
 export type Endpoint = 'metrics' | 'events' | 'logs' | 'app';
 
 export type PostResult =
-  | { kind: 'ok' }
+  /** 200 or 204; `body` is the parsed JSON answer of a 200, when there is one. */
+  | { kind: 'ok'; body?: unknown }
   /** 401: revoked, rotated or unknown token. */
   | { kind: 'unauthorized' }
   /** 426: the monitor wants a newer agent. */
@@ -135,7 +136,12 @@ export class MonitorClient {
   /** One gzip JSON request to `/agent/v1/<endpoint>`. */
   async post(endpoint: Endpoint, payload: unknown): Promise<PostResult> {
     if (!this.token) return { kind: 'unauthorized' };
-    const body = await gzip(Buffer.from(JSON.stringify(payload), 'utf8'));
+    return this.postGzip(endpoint, await gzipJson(payload));
+  }
+
+  /** The same with a body already compressed (log batches kept in the disk buffer). */
+  async postGzip(endpoint: Endpoint, body: Buffer): Promise<PostResult> {
+    if (!this.token) return { kind: 'unauthorized' };
     let r: Response;
     try {
       r = await this.fetch(this.o.url + INGEST_PREFIX + '/' + endpoint, {
@@ -152,9 +158,13 @@ export class MonitorClient {
     } catch (e) {
       return { kind: 'unavailable', detail: errText(e) };
     }
-    if (r.status === 200 || r.status === 204) {
+    if (r.status === 204) {
       await r.body?.cancel();
       return { kind: 'ok' };
+    }
+    if (r.status === 200) {
+      const answer = /json/.test(r.headers.get('content-type') ?? '') ? await r.json().catch(() => undefined) : await r.body?.cancel();
+      return answer === undefined ? { kind: 'ok' } : { kind: 'ok', body: answer };
     }
     const j = (await r.json().catch(() => ({}))) as { error?: string; message?: string };
     if (r.status === 401) return { kind: 'unauthorized' };
@@ -167,6 +177,8 @@ export class MonitorClient {
     return { kind: 'unavailable', detail: `HTTP ${r.status}` };
   }
 }
+
+export const gzipJson = (payload: unknown): Promise<Buffer> => gzip(Buffer.from(JSON.stringify(payload), 'utf8'));
 
 /** Written to a temporary file and renamed, so a crash never leaves half a token. */
 async function writePrivate(file: string, content: string): Promise<void> {
