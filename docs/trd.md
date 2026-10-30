@@ -37,7 +37,7 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Frontend (4.11) | Built | |
 | Deployment (10) | Built | Backups on `E:` (H7); offsite task and restore test [Verify] |
 | Parts 0, A, B, C (13) | Built | Merged in `e31724b` |
-| Multi-host (14) | M1 built (patch 0016) | Hosts, enrollment, `/agent/v1`, Hosts page, `host.silent`; M2 to M6 planned |
+| Multi-host (14) | M1 merged (PR #11) | Hosts, enrollment, `/agent/v1`, Hosts page, `host.silent`; M2 to M6 planned |
 
 ### 0.2 Test evidence (run on `main` for v3)
 
@@ -50,7 +50,7 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Frontend Playwright | Not rerun (needs a browser build) |
 | Integration helpers | `pm2:check`, `mongo:check`, `size:check`, `smoke:watchdog`, `demo` exist; not rerun |
 
-Phase 11 M1 (patch 0016, on `h1/repo-hygiene`): 434 backend tests pass with Nginx 1.24 installed (without Nginx its five configuration tests are skipped); 42 watchdog, 15 agent; typecheck clean; `next build` and 25 Playwright tests pass. Migration check on a 164 MB database shaped like eight days of production data: `010` in 0.06 s, every row kept; on the production copy (V25): 0.61 s on 13.8 MB, every row kept. Patch 0017: the check is `apps/backend/scripts/migration-check.mjs` on Node's built-in `node:sqlite`, so it runs on the VPS with nothing installed.
+Phase 11 M1 (patch 0016, merged as PR #11): 434 backend tests pass with Nginx 1.24 installed (without Nginx its five configuration tests are skipped); 42 watchdog, 15 agent; typecheck clean; `next build` and 25 Playwright tests pass. Migration check on a 164 MB database shaped like eight days of production data: `010` in 0.06 s, every row kept; on the production copy (V25): 0.61 s on 13.8 MB, every row kept. Patch 0017: the check is `apps/backend/scripts/migration-check.mjs` on Node's built-in `node:sqlite`, so it runs on the VPS with nothing installed. Patch 0019 (dependency bumps, 2026-10-30): typecheck clean; 437 backend with Nginx 1.24, 42 watchdog, 15 agent; `pnpm audit --prod` 7 advisories (zod and the pm2 chain, deferred: plan section 7). The frontend's dependencies did not change, so `next build` and Playwright were not rerun.
 
 ### 0.3 Change log
 

@@ -24,7 +24,7 @@ Every data structure the backend owns: SQLite tables, log files, in-memory shape
 | `007_events.sql` | `windows_events` | Built |
 | `008_github.sql` | `services.git_repo`, `git_branch`, `git_path`; `service_git` | Built |
 | `009_email.sql` | `email_event_counts`, `email_webhook_seen`, rule `monitor.email_bounce_spike` | Built |
-| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Built (patch 0016, not yet merged); production copy check V25 passed 2026-10-30 (0.61 s, every row kept) |
+| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Merged (PR #11, patch 0016); production copy check V25 passed 2026-10-30 (0.61 s, every row kept); on-server check V26 open |
 | `011_remote_checks.sql` | Probes, host check metrics, three rules | Planned (M4) |
 | `012_agent_commands.sql` | Remote action queue | Planned (M5) |
 

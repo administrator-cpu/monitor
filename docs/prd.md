@@ -41,7 +41,7 @@ v2 used "Delivered" for Parts 0, A, B and C. They are in `main` since 2026-10-09
 | Part B | Resend delivery counts and bounce alert | Built (`e31724b`) | `email.test.ts` |
 | Part C | Restart, stop, start of PM2 services with `can_operate` | Built (`e31724b`) | `actions.test.ts` |
 | Audit fixes (H1 to H9) | Gaps found in the v3 review | Merged (PRs #3 to #8); server steps open | `implementation-plan.md` phase 10.5 |
-| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 code done (patch 0016), M2 to M6 planned | Section 16; `hosts.test.ts` |
+| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 merged (PR #11, patch 0016), M2 to M6 planned | Section 16; `hosts.test.ts` |
 | TOTP, alert channels other than email | | Not started | Section 11 |
 
 Test run on `main` for v3: 364 backend, 42 watchdog and 15 agent tests pass; the typecheck of all packages is clean.
@@ -316,7 +316,7 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | Protected `main` branch (no direct pushes) | Planned (H1) |
 | Off-drive and offsite database backups, tested restore | Built (H7): nightly and pre-deploy on `E:`; offsite task and restore test are owner steps |
 | Nginx `limit_req` on `/webhooks/` and `/api/v1/logs/search` (H8), `/agent/` (M1) | H8 configuration ready in `docs/runbook-nginx.md`, to apply on the server; `/agent/` ready there, to apply with M1 |
-| Agent ingest with per-host hashed tokens, size and rate limits, version check | Built (M1, patch 0016; V25 passed, V26 after the merge) |
+| Agent ingest with per-host hashed tokens, size and rate limits, version check | Built (M1, merged in PR #11; V25 passed, V26 open) |
 | Docker access only through an allowlisting proxy; no exec, archive, export, inspect or create | Planned (M2) |
 | Remote actions pulled by the agent, expiring after 60 s, refused for the agent's own containers | Planned (M5) |
 | TOTP per action or Cloudflare Access | Recommended before M5 is switched on (O3) |
@@ -504,7 +504,7 @@ From the Windows VPS every 60 s: TCP to `acs.thediv.in` on 7547, 443 and 80, and
 
 | Step | Scope | Days |
 |---|---|---|
-| M1 | Migration `010`, hosts, enrollment, `/agent/v1/*`, Hosts admin UI, Nginx route, `host.silent` (code done, patch 0016) | 4 to 5 |
+| M1 | Migration `010`, hosts, enrollment, `/agent/v1/*`, Hosts admin UI, Nginx route, `host.silent` (merged, PR #11) | 4 to 5 |
 | M2 | Agent and proxy: host metrics, containers, events, image in GHCR | 4 to 5 |
 | M3 | Log shipping, per-host search and tail | 2 to 3 |
 | M4 | Mongo, Caddy, relay, backups, fail2ban and SSH counts, probes, watchdog targets | 4 to 5 |
