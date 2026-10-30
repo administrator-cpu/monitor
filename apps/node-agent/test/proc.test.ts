@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   cpuPct,
   diskUsage,
@@ -53,13 +54,24 @@ describe('/proc parsing', () => {
   });
 
   it('reports disk usage like df: total is used plus what users may still write', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-statfs-'));
-    const st = await fs.promises.statfs(dir);
-    const u = await diskUsage(dir, '/');
-    expect(u.volume).toBe('/');
-    expect(u.usedBytes).toBe((st.blocks - st.bfree) * st.bsize);
-    expect(u.totalBytes).toBe(u.usedBytes + st.bavail * st.bsize);
-    fs.rmSync(dir, { recursive: true });
+    // Fixed figures, not the live disk: other tests write files meanwhile (seen in CI, 36 KB apart).
+    const st = { type: 0, bsize: 4096, blocks: 1000, bfree: 300, bavail: 250, files: 0, ffree: 0 };
+    const spy = vi.spyOn(fsp, 'statfs').mockResolvedValue(st as unknown as Awaited<ReturnType<typeof fsp.statfs>>);
+    try {
+      const u = await diskUsage('/host', '/');
+      expect(spy).toHaveBeenCalledWith(path.join('/host', '/'));
+      expect(u.volume).toBe('/');
+      expect(u.usedBytes).toBe(700 * 4096);
+      expect(u.totalBytes).toBe((700 + 250) * 4096);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('reads the real disk without failing', async () => {
+    const u = await diskUsage(os.tmpdir(), '/');
+    expect(u.usedBytes).toBeGreaterThan(0);
+    expect(u.totalBytes).toBeGreaterThanOrEqual(u.usedBytes);
   });
 });
 
