@@ -144,10 +144,16 @@ ${local}
     expect(seen.filter((s) => s.url === '/agent/v1/metrics').at(-1)?.cookie).toBeUndefined();
     expect((await hit('/agent/v1/logs', { body: 'x'.repeat(1_500_000) })).status).toBe(200); // gzip batches stay well below
     expect((await hit('/agent/v1/logs', { body: 'x'.repeat(2_200_000) })).status).toBe(413);
+    // In waves of 20 at once: sent one by one on a slow CI runner, the zone (20 a second) refilled
+    // faster than the loop emptied the burst and the last request still passed (PR #20).
     const statuses: number[] = [];
-    for (let i = 0; i < 110; i++) statuses.push((await hit('/agent/v1/events', { body: '{}' })).status);
+    for (let w = 0; w < 7; w++) {
+      const wave = await Promise.all(Array.from({ length: 20 }, () => hit('/agent/v1/events', { body: '{}' })));
+      statuses.push(...wave.map((r) => r.status));
+    }
     expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(100);
-    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(1);
+    expect(statuses.every((s) => s === 200 || s === 429)).toBe(true);
   });
 
   it('answers the auth limit in JSON too', async () => {
