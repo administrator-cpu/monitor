@@ -128,11 +128,11 @@ Tunables (retention, session lifetimes, lockout, poll intervals, stop-mute lengt
 | Frontend | Vercel, `monitor.thediv.in` | Vercel's Git integration |
 | Watchdog | Render | `apps/watchdog/render.yaml` |
 
-`scripts/deploy.ps1` backs up the database (`VACUUM INTO`), keeps the previous release, copies and builds, restarts `monitor-api` in PM2, checks `/health` on port 4111 and stability for 10 s, records `.deploy-sha`, and rolls the code back on failure. Database migrations are not rolled back.
+`scripts/deploy.ps1` backs up the database (`VACUUM INTO`), keeps the previous release, copies and builds, restarts `monitor-api` (the Windows service, or the PM2 process before the H9 switch), checks `/health` on port 4111 and stability for 10 s, records `.deploy-sha`, and rolls the code back on failure. Database migrations are not rolled back.
 
 Production paths: deploy folder `C:\Apps\command-center-deploy`, env file `C:\Apps\command-center-deploy\apps\backend\.env` (never overwritten by a deploy), database `C:\monitor\data\monitor.db`, logs `E:\monitor-logs`.
 
-Server setup per phase (Nginx block, PM2, log volume, Resend, MongoDB user, agent) is in the runbooks in `docs/`. `scripts/install-service.ps1` installs the backend as a Windows service with NSSM; production does not use it yet (decision O1, step H9 in the plan).
+Server setup per phase (Nginx block, PM2, log volume, Resend, MongoDB user, agent) is in the runbooks in `docs/`. `scripts/install-service.ps1` installs the backend as the Windows service `monitor-api` with NSSM (decision O1, H9); the switch from PM2 is `docs/runbook-service.md`.
 
 ### Working on this repository
 

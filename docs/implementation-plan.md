@@ -18,14 +18,14 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | In progress | H1 to H8 and F1 merged to `main` (PR #3, PR #4); branch protection is the owner's step. F2 (hidden settings, patch 0010) and F3 (Next.js 16.4.3, patch 0011) on the branch. Server checks pending; H9 waits for O1 |
+| 10.5 | Audit fixes H1 to H9 | In progress | H1 to H8, F1, F2 and F3 merged to `main` (PRs #3 to #6). H9 code done as patch 0012 (O1 yes); the switch on the server is `docs/runbook-service.md`. Branch protection and server checks are the owner's steps |
 | 11 | Multi-host M1 to M6 | Planned | About 20 to 26 days |
 | later | TOTP, more alert channels | Not started | |
 
 ### 0.2 What happens next
 
 1. **H1 first:** protect `main`, restore `.env.example`, update the README. After this every change is a pull request.
-2. **Decide O1** (move `monitor-api` out of PM2). If yes, do H9 before M1.
+2. **O1 decided (yes, 2026-10-30).** H9 code done; switch on the server before M1 (`docs/runbook-service.md`).
 3. **H2 to H8**, one small pull request each, each checked on the server (0.3).
 4. **Run the open on-host checks** V1 to V18 and record results here.
 5. **Owner inputs for phase 11:** O4 (health path), O5 (backup folder and offsite marker), O6 (Caddy log to file), plus the M2 facts V20 to V24.
@@ -39,7 +39,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | # | Check | Phase | Result |
 |---|---|---|---|
 | V1 | One-hour idle run: RSS under 500 MB, CPU under 10% of a core, event loop lag p95 under 50 ms | 1 | Open |
-| V2 | Sessions survive `pm2 restart monitor-api` | 1 | Open |
+| V2 | Sessions survive `Restart-Service monitor-api` (`pm2 restart monitor-api` before H9's switch) | 1 | Open |
 | V3 | `git --version` works for the account running `monitor-api`; the VPS reaches `api.github.com` | A | Open |
 | V4 | Start on a stopped PM2 process brings it online | C | Open |
 | V5 | A Resend test event reaches `/webhooks/resend` through Nginx, passes the signature and appears on the Email page | B | Open |
@@ -53,7 +53,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V13 | Windows disk I/O shows numbers, not blanks | 3 | Open |
 | V14 | Database size after 8 days against the 164 MB projection | 9 | Open |
 | V15 | Part 0: `chatty` and `crasher` archived; `D:` gone with its alert resolved; `C:`, `E:`, `F:` unchanged | 0 | Open |
-| V16 | Part A: each service mapped (D7); a service behind shows "N behind"; `monitor-api` shows its deployed commit | A | Open |
+| V16 | Part A: each service mapped (D7); a service behind shows "N behind"; `monitor-api` shows its deployed commit (after H9: Host page, "Monitor health", "Deployed commit") | A | Open |
 | V17 | The UI checked once on a real phone | 2 | Open |
 | V18 | The deploy run for `e31724b` succeeded (GitHub Actions log) and `.deploy-sha` matches `main` | 10 | Open |
 | V19 | After H7: a restore from the nightly backup works | 10.5 | Open |
@@ -73,6 +73,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-29 | Documents moved into `docs/` (H1). H1 repository items done in the H1 pull request; branch protection left to the owner |
 | v3 | 2026-10-30 | F1 merged (PR #4). F2 added: the Settings page shows the GitHub and dashboard action settings (patch 0010) |
 | v3 | 2026-10-30 | F3 added: Next.js raised to 16.4.3 for three security advisories (patch 0011) |
+| v3 | 2026-10-30 | F2 and F3 merged (PRs #5, #6). O1 decided yes; H9 done as patch 0012 with `docs/runbook-service.md` |
 
 ---
 
@@ -118,7 +119,7 @@ TypeScript strict, pnpm 10, Vitest, Playwright, Prettier. CI on GitHub's Linux r
 
 | # | Input | Needed for | Status |
 |---|---|---|---|
-| O1 | Move `monitor-api` to a Windows service | H9, before M1 | Decision (recommended yes) |
+| O1 | Move `monitor-api` to a Windows service | H9, before M1 | Yes (2026-10-30); switch pending on the server |
 | O2 | Account the backend runs as | V8 | Open |
 | O3 | TOTP per action or Cloudflare Access | Before M5 is switched on | Decision (recommended yes) |
 | O4 | Health URL of the Ubuntu API | M4 | Open |
@@ -232,12 +233,16 @@ Done as patch 0008 (documents and a test; no backend code). Limits per client ad
 - [x] Fix, patch 0011: `next` raised to `^16.4.3` (same minor release; only `next` and its `@next/*` packages change in the lockfile). The npm advisory database lists nothing for 16.4.3. Typecheck, unit tests, `next build` and all 23 end-to-end tests pass.
 - [ ] Server check: the Vercel build for the merge succeeds and its log shows Next.js 16.4.3; `monitor.thediv.in` signs in and the Overview is live.
 
-#### H9: `monitor-api` outside PM2, if O1 is yes (1 day)
+#### H9: `monitor-api` outside PM2 (O1 yes, 2026-10-30) (1 day)
 
-- [ ] Install with `scripts/install-service.ps1` under the account that owns PM2 (so `PM2_HOME` and the PM2 pipe remain reachable).
-- [ ] `deploy.ps1`: replace `pm2 restart` and the PM2 checks with `Restart-Service` and service status; keep the health and stability checks; remove the process from PM2 afterwards.
-- [ ] Part C self-protection keeps working (the name check no longer matters, the `pm_id` check is harmless).
-- [ ] Runbook updated; V2 rechecked with `Restart-Service`.
+- [x] `scripts/install-service.ps1` installs the service `monitor-api` with NSSM under the account that owns PM2, with `PM2_HOME`, `CC_ENV_FILE` and `CC_SERVICE_NAME` set; refuses while port 4111 is in use or the service exists; waits for `/health`.
+- [x] `deploy.ps1`: restarts the service with `Restart-Service` when it exists, the PM2 process otherwise; preflight checks the service's NSSM folder; refuses when both exist; the stability check watches the PID of NSSM's `node.exe`; health check and rollback unchanged. A PM2 outage no longer stops a deploy in service mode, and the deploy asks PM2 only while its daemon runs (`pm2.pid`), so it never starts an empty daemon that would hide the outage.
+- [x] Part C self-protection keeps working: no code change needed. New tests: outside PM2 (no own PM2 id) the name is still refused and an ordinary service with PM2 id 0 can be restarted; the old `monitor-api` entry is archived once PM2 stops listing it.
+- [x] Runbook `docs/runbook-service.md` (switch, checks, finish, daily use, going back); backup and phase 1 runbooks updated.
+- [ ] Owner: the switch on the server (runbook sections 1 to 4), then `pm2 delete monitor-api` and `pm2 save`.
+- [ ] V2 rechecked with `Restart-Service monitor-api`; one deploy through the service path.
+
+Done as patch 0012. The Host page's "Monitor health" card now shows **Runs as** (Windows service, PM2 or by hand) and **Deployed commit** (from `.deploy-sha`), because `monitor-api`'s GitHub card goes away with its PM2 entry. CI now parses every `scripts/*.ps1` with PowerShell and refuses PowerShell 7-only operators (the server runs 5.1). Server check: Host page says "Windows service monitor-api" and shows the commit; Overview lists the services; a deploy log shows "Restarting service 'monitor-api'".
 
 Acceptance for 10.5: every H item merged through a pull request, its test green, its check in 0.3 recorded.
 
@@ -433,7 +438,7 @@ v2 estimated 15 to 20 days for phase 11. v3 adds remote actions (M5), the proxy 
 | 9 | Stop mute link kept in memory only | `pm2/actions.ts` `muteOf` | H6 (fixed) |
 | 10 | Backups only on `C:`, no nightly or offsite copy, no restore test | `deploy.ps1` `BackupDir` | H7 (code done; offsite task and V19 open) |
 | 11 | No `limit_req` on `/webhooks/` and `/logs/search` | Runbook phase 1 Nginx block | H8 (configuration in `runbook-nginx.md`; apply and V11 open) |
-| 12 | Monitor shares fate with PM2 | Deployment | H9 (O1) |
+| 12 | Monitor shares fate with PM2 | Deployment | H9 (code done; switch on the server pending) |
 | 13 | Production port is 4111, documents said 4000 | `deploy.ps1` `-Port 4111`, former `.env.example` | Documents v3 |
 | 14 | Webhook codes 503 and 401, documents said 404 and 400 | `routes/webhooks.ts` | Documents v3 |
 | 15 | Email buckets 10 minutes; ids kept 30 days | `email/stats.ts`, `retention.ts` | Documents v3 |

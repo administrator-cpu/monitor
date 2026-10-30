@@ -309,8 +309,18 @@ export interface HostSeries {
 }
 
 /** The monitor's own health (TRD section 8). */
+/** How the backend process was started (H9: a Windows service in production). */
+export interface MonitorRunsAs {
+  kind: 'service' | 'pm2' | 'direct';
+  /** Windows service name or PM2 process name, when known. */
+  name: string | null;
+}
+
 export interface MonitorHealth {
   pid: number;
+  runsAs: MonitorRunsAs;
+  /** Commit from the deploy folder's `.deploy-sha`; null for a manual start or before the first deploy. */
+  deployedSha: string | null;
   uptimeS: number;
   cpuPct: number;
   rssBytes: number;

@@ -4,13 +4,16 @@
 
 .DESCRIPTION
   Order of work:
-    1. Preflight (tools, deploy folder, .env, PM2 process points at the deploy folder)
+    1. Preflight (tools, deploy folder, .env, the backend points at the deploy folder)
     2. Consistent backup of the SQLite database
     3. Snapshot of the current release (for rollback)
     4. Copy the new source into the deploy folder (keeps .env, node_modules, dist)
     5. pnpm install --frozen-lockfile (backend + shared only), build
-    6. pm2 restart, then health check and a short stability check
+    6. Restart the backend, then health check and a short stability check
     7. If anything fails after step 3: restore the snapshot, reinstall, restart
+
+  The backend runs as the Windows service -ServiceName when that service exists (H9,
+  docs/runbook-service.md), otherwise as the PM2 process -PmName. Both at once is refused.
 
   Rolling back code does NOT undo database migrations. The backup path is printed
   so you can restore it by hand if a migration was the problem.
@@ -29,6 +32,7 @@ param(
   [string]$BackupDir = 'E:\monitor-backups\deploy',
   [string]$DbPath = 'C:\monitor\data\monitor.db',
   [string]$PmName = 'monitor-api',
+  [string]$ServiceName = 'monitor-api',
   [string]$Pm2Home = 'C:\Users\Administrator\.pm2',
   [int]$Port = 4111,
   [int]$HealthTimeoutSec = 45,
@@ -50,6 +54,7 @@ $short = if ($Sha) { $Sha.Substring(0, [Math]::Min(7, $Sha.Length)) } else { 'ma
 $backendDir = Join-Path $DeployDir 'apps\backend'
 $script:mirrored = $false
 $script:backupFile = $null
+$script:mode = $null   # 'service' or 'pm2', set in the preflight
 
 function Write-Step([string]$Text) { Write-Host "==> $Text" }
 
@@ -94,6 +99,40 @@ if (p) console.log(JSON.stringify({ status: p.pm2_env.status, restart: p.pm2_env
   [pscustomobject]@{ Status = $o.status; RestartTime = $o.restart; Cwd = $o.cwd }
 }
 
+# NSSM keeps the app's folder in the service's registry key.
+function Get-ServiceAppDir {
+  $key = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+  $dir = (Get-ItemProperty -Path $key -Name AppDirectory -ErrorAction SilentlyContinue).AppDirectory
+  if (-not $dir) { throw "Service '$ServiceName' has no NSSM AppDirectory. Was it installed with scripts\install-service.ps1?" }
+  return [string]$dir
+}
+
+# Running = the backend is up; Marker changes when it restarts (PM2 restart count, or the
+# process id of the node.exe that NSSM runs: NSSM starts a new one after a crash).
+function Get-BackendState {
+  if ($script:mode -eq 'service') {
+    $svc = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'"
+    $node = $null
+    if ($svc -and $svc.ProcessId) {
+      $node = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($svc.ProcessId) AND Name='node.exe'" | Select-Object -First 1
+    }
+    $state = if ($svc) { $svc.State } else { 'missing' }
+    return [pscustomobject]@{ Running = ($state -eq 'Running' -and $node -ne $null); Marker = $(if ($node) { $node.ProcessId } else { $null }); Status = $state }
+  }
+  $p = Get-Pm2Proc
+  if (-not $p) { return [pscustomobject]@{ Running = $false; Marker = $null; Status = 'missing' } }
+  return [pscustomobject]@{ Running = ($p.Status -eq 'online'); Marker = $p.RestartTime; Status = $p.Status }
+}
+
+function Restart-Backend {
+  if ($script:mode -eq 'service') {
+    Write-Step "Restarting service '$ServiceName'"
+    Restart-Service -Name $ServiceName -Force -ErrorAction Stop
+  } else {
+    Invoke-Native "Restarting PM2 process '$PmName'" { pm2 restart $PmName }
+  }
+}
+
 function Wait-Healthy {
   Start-Sleep -Seconds 3
   $deadline = (Get-Date).AddSeconds($HealthTimeoutSec)
@@ -116,7 +155,7 @@ function Invoke-Rollback {
       pnpm install --frozen-lockfile --filter '@cc/backend...'
       if ($LASTEXITCODE -ne 0) { throw "pnpm install failed during rollback ($LASTEXITCODE)" }
     } finally { Pop-Location }
-    pm2 restart $PmName
+    Restart-Backend
     if (Wait-Healthy) {
       Write-Host '   Rollback succeeded. The previous release is running again.'
     } else {
@@ -134,7 +173,10 @@ try {
   # ---- 1. Preflight -------------------------------------------------------
   Write-Step "Deploying $short from $SourceDir to $DeployDir"
 
-  foreach ($tool in 'node', 'pnpm', 'pm2') {
+  $script:mode = if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { 'service' } else { 'pm2' }
+  $tools = @('node', 'pnpm')
+  if ($script:mode -eq 'pm2') { $tools += 'pm2' }
+  foreach ($tool in $tools) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
       throw "'$tool' is not on PATH for the account running this script."
     }
@@ -149,11 +191,37 @@ try {
     throw "Missing $backendDir\.env. Copy it into the deploy folder first."
   }
 
-  $proc = Get-Pm2Proc
-  if (-not $proc) { throw "PM2 has no process named '$PmName' (PM2_HOME=$Pm2Home)." }
-  $cwd = ([string]$proc.Cwd).TrimEnd('\')
-  if ($cwd -ine $backendDir.TrimEnd('\')) {
-    throw "PM2 process '$PmName' runs from '$cwd', not from '$backendDir'. Restarting it would not deploy this code. Re-create the PM2 process from the deploy folder first."
+  if ($script:mode -eq 'service') {
+    Write-Step "Backend runs as the Windows service '$ServiceName'"
+    $dir = (Get-ServiceAppDir).TrimEnd('\')
+    if ($dir -ine $backendDir.TrimEnd('\')) {
+      throw "Service '$ServiceName' runs from '$dir', not from '$backendDir'. Restarting it would not deploy this code."
+    }
+    # A PM2 entry left over from before the switch would fight the service for the port.
+    # A PM2 outage must not stop the deploy, though: that is what the service is for. Ask PM2
+    # only while its daemon runs: `pm2 jlist` would otherwise start a new, empty daemon and hide
+    # the outage the monitor is reporting.
+    $daemonPid = $null
+    $pidFile = Join-Path $Pm2Home 'pm2.pid'
+    if (Test-Path $pidFile) { $daemonPid = [string](Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1) }
+    $daemonUp = ($daemonPid -match '^\s*\d+\s*$') -and [bool](Get-Process -Id ([int]$daemonPid.Trim()) -ErrorAction SilentlyContinue)
+    if (-not $daemonUp) {
+      Write-Host "   PM2 daemon is not running (no live pid in $pidFile); not checking for a leftover PM2 entry."
+    } elseif (Get-Command pm2 -ErrorAction SilentlyContinue) {
+      $left = $null
+      try { $left = Get-Pm2Proc } catch { Write-Host "   PM2 could not be read ($($_.Exception.Message)); continuing." }
+      if ($left) {
+        throw "Both the service '$ServiceName' and a PM2 process '$PmName' exist. Finish the switch first: pm2 delete $PmName; pm2 save (docs\runbook-service.md)."
+      }
+    }
+  } else {
+    Write-Step "Backend runs as the PM2 process '$PmName'"
+    $proc = Get-Pm2Proc
+    if (-not $proc) { throw "PM2 has no process named '$PmName' (PM2_HOME=$Pm2Home), and there is no service '$ServiceName'." }
+    $cwd = ([string]$proc.Cwd).TrimEnd('\')
+    if ($cwd -ine $backendDir.TrimEnd('\')) {
+      throw "PM2 process '$PmName' runs from '$cwd', not from '$backendDir'. Restarting it would not deploy this code. Re-create the PM2 process from the deploy folder first."
+    }
   }
 
   # ---- 2. Database backup -------------------------------------------------
@@ -200,17 +268,17 @@ conn.close();
   } finally { Pop-Location }
 
   # ---- 6. Restart and verify ---------------------------------------------
-  Invoke-Native "Restarting PM2 process '$PmName'" { pm2 restart $PmName }
+  Restart-Backend
 
   if (-not (Wait-Healthy)) { throw "Backend did not answer /health within $HealthTimeoutSec s." }
 
-  $afterRestart = Get-Pm2Proc
+  $afterRestart = Get-BackendState
   Start-Sleep -Seconds 10
-  $later = Get-Pm2Proc
-  if (-not $later -or $later.Status -ne 'online') {
-    throw "PM2 process is '$($later.Status)' after restart."
+  $later = Get-BackendState
+  if (-not $later.Running) {
+    throw "Backend is '$($later.Status)' after restart."
   }
-  if ($later.RestartTime -ne $afterRestart.RestartTime) {
+  if ($later.Marker -ne $afterRestart.Marker) {
     throw 'Backend is restarting repeatedly (crash loop).'
   }
   if (-not (Wait-Healthy)) { throw 'Backend stopped answering /health during the stability check.' }
