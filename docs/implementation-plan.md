@@ -13,13 +13,13 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 
 | Phase | Scope | Status | Notes |
 |---|---|---|---|
-| 0 | Prerequisites | Done except backups | H7 |
+| 0 | Prerequisites | Done except the offsite backup | H7 (nightly backups run; V19 local part passed 2026-10-30) |
 | 1 to 9 | Windows VPS monitoring | Built | On-host checks in 0.3 |
 | Deploy | Self-deploy pipeline | Built | Runs on pushes to `main` that touch backend paths |
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
-| 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 and H8 server steps and the open checks in 0.3 |
-| 11 | Multi-host M1 to M6 | In progress | M1 merged (PR #11, patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. V25 passed 2026-10-30; open: the deploy result, Nginx `/agent/` and V26 (`docs/runbook-hosts.md`). M2 to M6 open |
+| 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 offsite task, the rest of the H8 server step (`runbook-nginx.md` section 2.1) and the open checks in 0.3 |
+| 11 | Multi-host M1 to M6 | In progress | M1 merged (PR #11, patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. Deployed 2026-10-30 without rollback; Nginx `/agent/` in; V25 and V26 passed. M2 next; M3 to M6 open |
 | later | TOTP, more alert channels | Not started | |
 
 ### 0.2 What happens next
@@ -29,7 +29,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 3. **H2 to H8**, one small pull request each, each checked on the server (0.3).
 4. **Run the open on-host checks** V1 to V18 and record results here.
 5. **Owner inputs for phase 11:** O4 (health path), O5 (backup folder and offsite marker), O6 (Caddy log to file), plus the M2 facts V20 to V24.
-6. **Phase 11** from M1 to M6. M1 is merged (PR #11) after V25 passed; next Nginx `/agent/` and V26 (`docs/runbook-hosts.md` sections 2 and 3). M1 and M2 already put the Ubuntu host on the dashboard with alerts.
+6. **Phase 11** from M1 to M6. M1 is merged (PR #11), deployed, and checked on the server (V25, V26). Next M2, which puts the Ubuntu host on the dashboard with alerts.
 7. **Before M5 is switched on:** decide O3 (TOTP per action or Cloudflare Access).
 
 ### 0.3 On-host checks (canonical list)
@@ -56,14 +56,14 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V16 | Part A: each service mapped (D7); a service behind shows "N behind"; `monitor-api` shows its deployed commit (after H9: Host page, "Monitor health", "Deployed commit") | A | Open |
 | V17 | The UI checked once on a real phone | 2 | Open |
 | V18 | The deploy run for `e31724b` succeeded (GitHub Actions log) and `.deploy-sha` matches `main` | 10 | Open |
-| V19 | After H7: a restore from the nightly backup works | 10.5 | Open. Blocked: on 2026-10-30 `E:\monitor-backups` had no nightly file, only deploy copies; diagnose with `docs/runbook-backups.md` section 5 |
+| V19 | After H7: a restore from the nightly backup works | 10.5 | **Local part passed 2026-10-30 16:26** (`check-backup.ps1` on `monitor-20261030.db`, written 02:32:51): integrity ok; users 1, settings 0, alert rules 29, mutes 0, services 12, `service_git` 3, tenants 1, audit log 73, `schema_migrations` 9 (taken before `010`); newest audit entry 2026-10-29T12:08:51Z. Nightly files present: `monitor-20261029.db` (first run, 17:31:57) and `monitor-20261030.db`. The earlier "no nightly file" reading was of the `deploy` subfolder. Open: the same check on a file pulled back from the offsite remote, after H7's rclone task |
 | V20 | Ubuntu: name of the `acs` compose network and of the Mongo service; full container list | 11 (M2) | **Done 2026-10-30.** Host `acs-prod`, `154.49.142.251` (SSH on 35610). Compose project `acs` (`/opt/acs/repo/infra/docker-compose.yml`), network `acs_default`, Mongo service `mongo` (`acs-mongo-1`, `mongo:8.0`). Nine containers, all project `acs`: `api`, `dashboard`, `caddy` (`caddy:2-alpine`), `mongo`, `genieacs-nbi`, `genieacs-cwmp`, `genieacs-fs`, `genieacs-ui`, `cpe-sim`. Four run images that show only as IDs (`genieacs-cwmp`/`-fs`/`-ui` and `cpe-sim`), so discovery keys on the compose labels, never the image name. User `deploy` is in the `docker` group |
 | V21 | Ubuntu: a non-root container with `pid: host` can read `/proc/1/net/dev` | 11 (M2) | **Done 2026-10-30.** As uid 65534 it lists the host's interfaces (`lo`, `ens3`, `docker0`, `br-d2b6a9c42f5f`, 11 `veth*`), matching `ip -br link`. The fallback container is not needed; after the TRD 14.5 exclusions only `ens3` is counted |
 | V22 | Ubuntu: `/var/log/auth.log` and `/var/log/fail2ban.log` exist and are group `adm` | 11 (M4) | Open |
 | V23 | Ubuntu: Caddy writes JSON access logs to a file in a named volume and not to stdout (O6) | 11 (M4) | Open |
 | V24 | Ubuntu: backup folder path and the `.offsite-ok` marker after an upload (O5) | 11 (M4) | Open |
 | V25 | Migration `010` on a copy of the production database: `node apps\backend\scripts\migration-check.mjs <copy>` prints OK; record the time (`docs/runbook-hosts.md` section 1). Before the M1 merge | 11 (M1) | **Passed 2026-10-30 14:17.** Copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents): `010` in 0.61 s, every row kept, services and open incidents unchanged. Run with a standalone `node:sqlite` script, the forerunner of `migration-check.mjs` (patch 0017). Here: 0.06 s on a 164 MB database shaped like eight days of production data |
-| V26 | After the M1 deploy: pages and open incidents unchanged; Hosts lists `windows-vps`; `/agent/v1/metrics` gives 401 without a token and 403 with an `Origin` through Nginx; optional enrollment dry run (`docs/runbook-hosts.md` section 3) | 11 (M1) | Open |
+| V26 | After the M1 deploy: pages and open incidents unchanged; Hosts lists `windows-vps`; `/agent/v1/metrics` gives 401 without a token and 403 with an `Origin` through Nginx; optional enrollment dry run (`docs/runbook-hosts.md` section 3) | 11 (M1) | **Passed 2026-10-30.** Deploys of PR #11 and #12 succeeded without rollback (15:46). Nginx `/agent/` added and reloaded 15:55. `curl` through the public name: `401`, then `403` with `Origin` (15:56). Dashboard 16:17: Settings shows "Remote hosts"; Overview, Host, Services and Alerts unchanged; all collectors ok. Admin → Hosts lists `windows-vps` (#1, Windows, "this server") at 16:31. Enrollment dry run not done |
 
 ### 0.4 Change log
 
@@ -84,6 +84,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
 | v3 | 2026-10-30 | M1 merged (PR #11, `772dd65`), patch 0017 (PR #12, `0528e71`), patch 0018 (PR #13, docs only). Not yet confirmed: the PR #11 and #12 deploys, Nginx `/agent/`, V26 |
 | v3 | 2026-10-30 | Patch 0019: status labels after the merges. `pnpm audit --prod` from 18 advisories to 7: `systeminformation` 5.33.19, `fastify` 5.12.7, `fast-uri` 3.1.9 and 4.2.3, `ip-address` 10.7.5 (through `@fastify/rate-limit`). Left: zod 4 and pm2 7, deferred (section 7). One build allow-list, in the root `package.json` (pnpm ignored the one in `pnpm-workspace.yaml`); esbuild's postinstall stays off, as it always was in practice |
+| v3 | 2026-10-30 | Patch 0019 merged (PR #14, `003d943`) and deployed. Deploys of PR #11 and #12 succeeded; Nginx `/agent/` in (`C:\nginx-1.30.2`; runbook path and zone names corrected, server state in `runbook-nginx.md` section 2.1); V26 passed; nightly backups run and V19's local part passed. `runbook-backups.md` runs the scripts from `C:\Apps\command-center-deploy`. `/admin` redirects to Admin → Users; the Hosts page's add panel sits below its header (patch 0020) |
 
 ---
 
@@ -211,13 +212,14 @@ Done as patch 0006. The in-memory map is gone. Start and Restart delete that ser
 - [x] `deploy.ps1`: `BackupDir` to `E:\monitor-backups\deploy`.
 - [ ] Owner: a Windows scheduled task copies the newest backup offsite (e.g. `rclone` to an encrypted remote). Script ready: `scripts/backup-offsite.ps1`.
 - [x] Runbook: restore steps (stop, copy, start, check): `docs/runbook-backups.md`, with `scripts/check-backup.ps1` for the test on a copy.
-- [ ] Do one restore on a copy (V19).
+- [x] Do one restore on a copy (V19): local part passed 2026-10-30; the offsite part waits for the rclone task.
 
-Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and writes the day's file once it is past 02:30 server time; it writes to `.partial`, runs `PRAGMA quick_check` on the copy and renames it, then keeps the newest `backup.keep` (14, new setting) nightly files. Before 02:30 it fails while yesterday's file is missing (unless the folder has no backups yet), so a lost day keeps the alert open. New variable `BACKUP_DIR`: default `E:\monitor-backups` on Windows, off elsewhere, `off` switches it off. Deploy backups go to `E:\monitor-backups\deploy`; the old `C:\monitor\backups` is left for the owner to delete. Owner steps on the server: rclone with a `crypt` remote, the scheduled task, and V19 (runbook sections 2 and 3). Server check: after the first night, today's file exists and there is no "Collector stale" for `backup`. **Not met on 2026-10-30:** only deploy copies in `E:\monitor-backups\deploy`, no `monitor-YYYYMMDD.db`. The code reads correctly and its tests pass, so the cause is on the server; `runbook-backups.md` section 5 says what to read (Overview "Last backup", the startup log's `backupDir`, `collector failed` lines) and what each answer means.
+Code done as patch 0007 (`src/backup.ts`). The job looks every 10 minutes and writes the day's file once it is past 02:30 server time; it writes to `.partial`, runs `PRAGMA quick_check` on the copy and renames it, then keeps the newest `backup.keep` (14, new setting) nightly files. Before 02:30 it fails while yesterday's file is missing (unless the folder has no backups yet), so a lost day keeps the alert open. New variable `BACKUP_DIR`: default `E:\monitor-backups` on Windows, off elsewhere, `off` switches it off. Deploy backups go to `E:\monitor-backups\deploy`; the old `C:\monitor\backups` is left for the owner to delete. Owner steps on the server: rclone with a `crypt` remote, the scheduled task, and V19 (runbook sections 2 and 3). Server check: after the first night, today's file exists and there is no "Collector stale" for `backup`. **Met:** the first nightly file was written 2026-10-29 17:31 (the first run after the deploy, past 02:30 that day), the second 2026-10-30 02:32; Overview "Last backup" and the `backup` collector are ok. An earlier reading of "no nightly file" looked at the `deploy` subfolder. `runbook-backups.md` section 5 stays for a real gap.
 
 #### H8: Nginx limits and exposure (0.25 day)
 
 - [x] `limit_req` on `/webhooks/` and `/api/v1/logs/search` (configuration in `docs/runbook-nginx.md`; applying it on the server is the owner's step).
+- [ ] Owner: apply on the server. As of 2026-10-30 the server (`C:\nginx-1.30.2`) has `mon_auth`, `mon_search` at 30 per minute and the phase 11 `/agent/` block; the search rate and key, `/webhooks/` and the JSON 429 are still to do (`runbook-nginx.md` section 2.1).
 - [ ] Port scan from outside (V11) and record the result.
 
 Done as patch 0008 (documents and a test; no backend code). Limits per client address: webhooks 120 per minute with a burst of 60 and bodies up to 256 KB; log search 6 per minute with a burst of 5, CORS preflights not counted. The auth and search limits answer 429 with the app's JSON error shape and the dashboard's CORS headers, so the page shows "Too many requests" instead of a network error. `apps/backend/test/nginx-config.test.ts` runs the runbook's blocks through `nginx -t` and a burst test wherever nginx is installed and is skipped elsewhere; check in the CI log whether it ran. Owner steps: apply and reload (runbook section 3), then the port scan (section 4, V11).
@@ -294,7 +296,7 @@ Acceptance for 10.5: every H item merged through a pull request, its test green,
 - [x] `host.silent` rule (critical, 120 s after 30 s without a request) and evaluator; it suppresses the host's other incidents except `host.probe_failed`; a revoked host's incidents end without email.
 - [x] Tests: 20 backend (`hosts.test.ts`: migration on a filled 009 database, enrollment, rotation, revoke, `Origin`, gzip bomb, strict bodies, version, rate limits, storage per host, `host.silent`, services per host), one Nginx, one Playwright (add a host, enroll once, report, revoke).
 - [x] Owner: V25 before the merge (passed 2026-10-30).
-- [ ] Owner: Nginx `/agent/` and V26 after the merge (`docs/runbook-hosts.md`).
+- [x] Owner: Nginx `/agent/` and V26 after the merge (`docs/runbook-hosts.md`): passed 2026-10-30.
 
 Acceptance: `010` on the production copy leaves every page, rule and open incident unchanged; an enrollment token works once and not after an hour; a revoked token gets 401; a 100 KB gzip body that inflates past the limit gets 413; a request with `Origin` gets 403. The last four are tests in `hosts.test.ts`; the first is V25 and V26.
 

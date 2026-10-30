@@ -24,14 +24,14 @@ The nightly copy is made with `VACUUM INTO` to `monitor-YYYYMMDD.db.partial`, ch
    2. Run `rclone config` as the account that will run the task. Create the storage remote (the plan suggests Google Drive, as for the other backups; B2, S3 or OneDrive work the same way), then a `crypt` remote over it named `monitor-offsite`, with a strong password and salt. **Store both in your password manager**: without them the offsite copies cannot be read. The database holds password hashes, session hashes and the audit log, so it must not leave the server unencrypted.
    3. Test by hand, after the first nightly file exists:
       ```powershell
-      cd C:\Apps\command-center
+      cd C:\Apps\command-center-deploy
       .\scripts\backup-offsite.ps1 -Remote 'monitor-offsite:'
       rclone lsl monitor-offsite:
       ```
    4. Schedule it daily at 03:15 (after the 02:30 job), as the same account:
       ```powershell
       $a = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Apps\command-center\scripts\backup-offsite.ps1 -Remote monitor-offsite:'
+        -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Apps\command-center-deploy\scripts\backup-offsite.ps1 -Remote monitor-offsite:'
       $t = New-ScheduledTaskTrigger -Daily -At 3:15am
       $s = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1)
       Register-ScheduledTask -TaskName 'Command Center offsite backup' -Action $a -Trigger $t -Settings $s `
@@ -45,7 +45,7 @@ The nightly copy is made with `VACUUM INTO` to `monitor-YYYYMMDD.db.partial`, ch
 Do this once after setup, and again after any change to the backup path. It never touches the live database.
 
 ```powershell
-cd C:\Apps\command-center
+cd C:\Apps\command-center-deploy
 .\scripts\check-backup.ps1 -Backup (Get-ChildItem E:\monitor-backups\monitor-*.db | Sort-Object Name | Select-Object -Last 1).FullName
 ```
 

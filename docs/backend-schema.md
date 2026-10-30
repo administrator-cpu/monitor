@@ -24,7 +24,7 @@ Every data structure the backend owns: SQLite tables, log files, in-memory shape
 | `007_events.sql` | `windows_events` | Built |
 | `008_github.sql` | `services.git_repo`, `git_branch`, `git_path`; `service_git` | Built |
 | `009_email.sql` | `email_event_counts`, `email_webhook_seen`, rule `monitor.email_bounce_spike` | Built |
-| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Merged (PR #11, patch 0016); production copy check V25 passed 2026-10-30 (0.61 s, every row kept); on-server check V26 open |
+| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Merged (PR #11, patch 0016); production copy check V25 passed 2026-10-30 (0.61 s, every row kept); on-server check V26 passed 2026-10-30 |
 | `011_remote_checks.sql` | Probes, host check metrics, three rules | Planned (M4) |
 | `012_agent_commands.sql` | Remote action queue | Planned (M5) |
 
@@ -57,7 +57,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 - One writer; metric rows batched every 10 s.
 - Migrations: files `NNN_name.sql`, forward only, each run in **one transaction** together with its `schema_migrations` row. A failure rolls the file back and stops startup. Because the runner opens the transaction, a migration cannot change `PRAGMA foreign_keys`; none needs to (13.2).
 - Path: `SQLITE_PATH`, default `C:\monitor\data\monitor.db` on Windows, which the deploy script also assumes [Verify the production value].
-- Backups (H7): nightly `VACUUM INTO BACKUP_DIR\monitor-YYYYMMDD.db` at 02:30 server time (default `E:\monitor-backups`, newest `backup.keep` = 14 kept, last result in `maintenance_runs` job `backup`); `VACUUM INTO` before each deploy into `E:\monitor-backups\deploy`, last 10 kept; an offsite copy by `scripts/backup-offsite.ps1` (owner's scheduled task). Restore steps and the restore test: `runbook-backups.md`. [Verify] offsite task and V19. Metric history may be lost; users, settings, rules, services (including the hand-entered git mapping), tenants and audit must not.
+- Backups (H7): nightly `VACUUM INTO BACKUP_DIR\monitor-YYYYMMDD.db` at 02:30 server time (default `E:\monitor-backups`, newest `backup.keep` = 14 kept, last result in `maintenance_runs` job `backup`); `VACUUM INTO` before each deploy into `E:\monitor-backups\deploy`, last 10 kept; an offsite copy by `scripts/backup-offsite.ps1` (owner's scheduled task). Restore steps and the restore test: `runbook-backups.md`. V19's local part passed 2026-10-30; [Verify] offsite task and the offsite half of V19. Metric history may be lost; users, settings, rules, services (including the hand-entered git mapping), tenants and audit must not.
 
 ---
 

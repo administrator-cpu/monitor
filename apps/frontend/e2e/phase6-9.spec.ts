@@ -156,11 +156,23 @@ test('log search finds lines across a time range, refuses a dangerous pattern an
 test('an admin adds a host; its agent enrolls once, reports, and is refused after a revoke (phase 11 M1)', async () => {
   const page = shared;
   const apiBase = process.env.E2E_API ?? 'http://127.0.0.1:4100';
+  // /admin has no page of its own; it leads to the first admin page.
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/admin\/users$/);
+
   await page.goto('/admin/hosts');
-  await expect(page.getByRole('heading', { name: 'Hosts', level: 1 })).toBeVisible();
+  const title = page.getByRole('heading', { name: 'Hosts', level: 1 });
+  await expect(title).toBeVisible();
   await expect(page.getByTestId('host-status-windows-vps')).toHaveText('this server');
 
+  const titleTop = (await title.boundingBox())!.y;
   await page.getByRole('button', { name: 'Add host' }).click();
+  // The form opens below the header; the header (and its title) stay where they were.
+  const form = page.getByRole('form', { name: 'Add host' });
+  await expect(form).toBeVisible();
+  expect(Math.abs((await title.boundingBox())!.y - titleTop)).toBeLessThan(2);
+  expect((await form.boundingBox())!.y).toBeGreaterThan(titleTop);
+  await expect(page.getByRole('button', { name: 'Add host', exact: true })).toBeDisabled();
   await page.getByLabel('Name (lower case, digits, dashes)').fill('e2e-linux');
   await page.getByRole('button', { name: 'Add host and make a token' }).click();
   const env = page.getByTestId('enroll-env');

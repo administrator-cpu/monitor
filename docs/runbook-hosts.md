@@ -1,6 +1,6 @@
 # Runbook: remote hosts on the monitor (phase 11, M1)
 
-What the owner does on the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location, and check the Hosts page after the deploy. Nothing is installed on the Ubuntu server in M1; the agent and its compose file arrive with M2 (a later section of this runbook, "Adding a host").
+What the owner does on the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). Nothing is installed on the Ubuntu server in M1; the agent and its compose file arrive with M2 (a later section of this runbook, "Adding a host").
 
 ## 1. Before merging: a migration on a copy (V25 for `010`)
 
