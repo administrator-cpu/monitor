@@ -19,7 +19,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 | Public milestone | `monitor-api.thediv.in` public | Done with open items | Section 4 |
 | 10 | Parts 0, A, B, C | Built | Pushed directly to `main` in `e31724b` on 2026-10-09, not as four pull requests; the deploy run's result is not recorded (V18) |
 | 10.5 | Audit fixes H1 to H9 | Code done | H1 to H9 and F1 to F4 merged to `main` (PRs #3 to #8). `monitor-api` runs as a Windows service since 2026-10-30. Left: branch protection, the H7 offsite task, the rest of the H8 server step (`runbook-nginx.md` section 2.1) and the open checks in 0.3 |
-| 11 | Multi-host M1 to M6 | In progress | M1 merged (PR #11, patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. Deployed 2026-10-30 without rollback; Nginx `/agent/` in; V25 and V26 passed. M2 next; M3 to M6 open |
+| 11 | Multi-host M1 to M6 | In progress | M1 merged (PR #11, patch 0016): migration `010`, hosts and enrollment, `/agent/v1`, Hosts page, `host.silent`, Nginx `/agent/`. Deployed 2026-10-30 without rollback; Nginx `/agent/` in; V25 and V26 passed. M2 code done (patches 0021 to 0023; V27 before 0021, V28 on `acs-prod` after). M3 to M6 open |
 | later | TOTP, more alert channels | Not started | |
 
 ### 0.2 What happens next
@@ -29,7 +29,7 @@ v3 follows a review of the repository at `c00d968`. Phases 1 to 10 are built. Ph
 3. **H2 to H8**, one small pull request each, each checked on the server (0.3).
 4. **Run the open on-host checks** V1 to V18 and record results here.
 5. **Owner inputs for phase 11:** O4 (health path), O5 (backup folder and offsite marker), O6 (Caddy log to file), plus the M2 facts V20 to V24.
-6. **Phase 11** from M1 to M6. M1 is merged (PR #11), deployed, and checked on the server (V25, V26). Next M2, which puts the Ubuntu host on the dashboard with alerts.
+6. **Phase 11** from M1 to M6. M1 is merged (PR #11), deployed, and checked on the server (V25, V26). M2's code is done as patches 0021 to 0023: V27 before merging 0021, then the agent on `acs-prod` (`runbook-hosts.md` section 5, V28). Next M3 (logs).
 7. **Before M5 is switched on:** decide O3 (TOTP per action or Cloudflare Access).
 
 ### 0.3 On-host checks (canonical list)
@@ -63,6 +63,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | V23 | Ubuntu: Caddy writes JSON access logs to a file in a named volume and not to stdout (O6) | 11 (M4) | Open |
 | V24 | Ubuntu: backup folder path and the `.offsite-ok` marker after an upload (O5) | 11 (M4) | Open |
 | V25 | Migration `010` on a copy of the production database: `node apps\backend\scripts\migration-check.mjs <copy>` prints OK; record the time (`docs/runbook-hosts.md` section 1). Before the M1 merge | 11 (M1) | **Passed 2026-10-30 14:17.** Copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents): `010` in 0.61 s, every row kept, services and open incidents unchanged. Run with a standalone `node:sqlite` script, the forerunner of `migration-check.mjs` (patch 0017). Here: 0.06 s on a 164 MB database shaped like eight days of production data |
+| V28 | After the M2 merges, on `acs-prod` (`runbook-hosts.md` section 5.4): the host online within a minute of `docker compose up -d` with CPU, memory, swap and `/`; the nine `acs` services listed; stopping `cpe-sim` opens "service down" and starting it resolves; stopping the agent raises `host.silent`; the proxy answers 403 to `/info`; agent and proxy memory | 11 (M2) | Open |
 | V27 | Migration `011` on a copy of the production database (`docs/runbook-hosts.md` section 1): `Applied 011_tls_certs_host.sql`, `OK: every row kept`. Before the patch 0021 merge | 11 (M2) | Open |
 | V26 | After the M1 deploy: pages and open incidents unchanged; Hosts lists `windows-vps`; `/agent/v1/metrics` gives 401 without a token and 403 with an `Origin` through Nginx; optional enrollment dry run (`docs/runbook-hosts.md` section 3) | 11 (M1) | **Passed 2026-10-30.** Deploys of PR #11 and #12 succeeded without rollback (15:46). Nginx `/agent/` added and reloaded 15:55. `curl` through the public name: `401`, then `403` with `Origin` (15:56). Dashboard 16:17: Settings shows "Remote hosts"; Overview, Host, Services and Alerts unchanged; all collectors ok. Admin → Hosts lists `windows-vps` (#1, Windows, "this server") at 16:31. Enrollment dry run not done |
 
@@ -85,6 +86,7 @@ Every [Verify] in the four documents points here. Tick with a date and result, o
 | v3 | 2026-10-30 | V25 passed (0.61 s on the production copy). Patch 0017: `migration-check.mjs` runs on plain Node (`node:sqlite`), nothing installed; `pnpm install` no longer tries to compile better-sqlite3; nightly backups missing on the server, diagnosis steps in `runbook-backups.md` section 5 |
 | v3 | 2026-10-30 | M1 merged (PR #11, `772dd65`), patch 0017 (PR #12, `0528e71`), patch 0018 (PR #13, docs only). Not yet confirmed: the PR #11 and #12 deploys, Nginx `/agent/`, V26 |
 | v3 | 2026-10-30 | Patch 0019: status labels after the merges. `pnpm audit --prod` from 18 advisories to 7: `systeminformation` 5.33.19, `fastify` 5.12.7, `fast-uri` 3.1.9 and 4.2.3, `ip-address` 10.7.5 (through `@fastify/rate-limit`). Left: zod 4 and pm2 7, deferred (section 7). One build allow-list, in the root `package.json` (pnpm ignored the one in `pnpm-workspace.yaml`); esbuild's postinstall stays off, as it always was in practice |
+| v3 | 2026-10-30 | Patch 0023, M2 delivery: image workflow to GHCR, `deploy/cc-agent` compose file, runbook "Adding a host" (V28), host switcher on Host and Services, `pnpm demo` with a second host reported by the real node agent. M2 code complete; left: the owner's steps on GitHub and `acs-prod` |
 | v3 | 2026-10-30 | Patch 0022, M2 host side: `apps/docker-proxy` (HAProxy allowlist, tested with the real binary in CI) and `apps/node-agent` 0.2.0 (no runtime dependencies), both with Dockerfiles; images are built by CI from patch 0023 |
 | v3 | 2026-10-30 | Patch 0021, M2 monitor side: migration `011` (`tls_certs` per host; the planned M4 and M5 migrations become `012` and `013`), container services, events, per-host rules, `?host=` on `/host` and `/services`. V27 added |
 | v3 | 2026-10-30 | Patch 0019 merged (PR #14, `003d943`) and deployed. Deploys of PR #11 and #12 succeeded; Nginx `/agent/` in (`C:\nginx-1.30.2`; runbook path and zone names corrected, server state in `runbook-nginx.md` section 2.1); V26 passed; nightly backups run and V19's local part passed. `runbook-backups.md` runs the scripts from `C:\Apps\command-center-deploy`. `/admin` redirects to Admin → Users; the Hosts page's add panel sits below its header (patch 0020) |
@@ -112,11 +114,12 @@ command-center/
     backend/        Fastify API, WebSocket, collectors, alert engine, webhook, agent ingest (M1)
     frontend/       Next.js UI
     watchdog/       Render service (no shared code)
-    node-agent/     cc-node-agent image (M2, planned)
-    docker-proxy/   cc-docker-proxy image: HAProxy allowlist (M2, planned)
+    node-agent/     cc-node-agent image (M2)
+    docker-proxy/   cc-docker-proxy image: HAProxy allowlist (M2)
   packages/
     agent/          @cc/agent for the MERN services
     shared/         Zod schemas and types
+  deploy/cc-agent/  compose file and env example for a monitored Linux host (M2)
   scripts/          deploy.ps1, install-service.ps1, uninstall-service.ps1
   docs/             runbooks and the four documents (moved here in H1)
 ```
@@ -310,10 +313,11 @@ Not in M1, as planned: container discovery and services from the container list 
 - [x] `apps/docker-proxy`: HAProxy config with the TRD 14.4 allowlist and `ALLOW_ACTIONS`; CI test that every forbidden path returns 403 (patch 0022).
 - [x] `apps/node-agent`: host metrics from `/proc` and `statfs` (TRD 14.5), container list, stats and events through the proxy, restart counting, push every 10 s with retry and backoff, token on the state volume (patch 0022).
 - [x] Discovery and auto-archive of compose services, same rules as PM2 (patch 0021).
-- [ ] CI builds both images and pushes to GHCR on `main`.
-- [ ] Compose file and runbook "Adding a host" (enroll, env file, `docker compose up -d`, check).
-- [ ] Minimal host switcher so Host and Services pages work for host 2.
-- [ ] `pnpm demo` with two hosts (fake Docker API and fixture `/proc`).
+- [x] CI builds both images and pushes to GHCR on `main` (`.github/workflows/images.yml`, patch 0023).
+- [x] Compose file and runbook "Adding a host" (enroll, env file, `docker compose up -d`, check): `deploy/cc-agent`, `runbook-hosts.md` section 5 (patch 0023).
+- [x] Minimal host switcher so Host and Services pages work for host 2 (patch 0023).
+- [x] `pnpm demo` with two hosts (fake Docker API and fixture `/proc`) (patch 0023).
+- [ ] Owner: images public or `docker login` (runbook-hosts.md 5.1), agent on `acs-prod` and V28 (5.3, 5.4).
 - [x] On the server: V20, V21 (2026-10-30).
 
 Acceptance: the Ubuntu host appears within a minute of `docker compose up -d` with CPU, memory, swap, disks and every `acs` container; stopping `cpe-sim` on the server opens "service down" and starting it resolves; stopping the agent raises `host.silent` and hides that host's other alerts (the rule and its suppression exist since M1).

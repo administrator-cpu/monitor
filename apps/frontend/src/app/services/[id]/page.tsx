@@ -57,7 +57,11 @@ function EditForm({ detail, onDone }: { detail: ServiceDetailResponse; onDone: (
       onDone();
     } catch (e) {
       if (e instanceof ApiError && e.code === 'service_active') {
-        setErr('PM2 still lists this process. Stop and delete it in PM2 first; otherwise it would reappear.');
+        setErr(
+          s.kind === 'container'
+            ? 'The host’s agent still lists this container. Remove it on that host (docker compose down or rm) first; otherwise it would reappear.'
+            : 'PM2 still lists this process. Stop and delete it in PM2 first; otherwise it would reappear.',
+        );
       } else if (e instanceof ApiError && e.code === 'name_taken') {
         setErr('Another service already uses that name.');
       } else setErr(errorMessage(e));
@@ -282,7 +286,15 @@ function Detail() {
     <>
       <PageHead title={s.name} />
       <p className="muted" style={{ marginTop: -8 }}>
-        <Link href="/services">Services</Link> · PM2 name <code>{s.pm2Name}</code>
+        {s.kind === 'container' ? (
+          <>
+            <Link href={`/services?host=${s.hostId}`}>Services</Link> · container <code>{s.sourceKey}</code>
+          </>
+        ) : (
+          <>
+            <Link href="/services">Services</Link> · PM2 name <code>{s.pm2Name}</code>
+          </>
+        )}
         {s.isArchived && <span className="tag" style={{ marginLeft: 8 }}>archived</span>}
         {s.publicUrl && (
           <>
@@ -393,7 +405,14 @@ function Detail() {
       </HistoryPanel>
 
       <div style={{ marginTop: 14 }}>
-        <LogViewer service={s.pm2Name} />
+        {s.kind === 'container' ? (
+          <section className="card" aria-label="Logs">
+            <h2>Logs</h2>
+            <div className="empty">Container logs arrive with phase 11 step M3.</div>
+          </section>
+        ) : (
+          <LogViewer service={s.pm2Name} />
+        )}
       </div>
 
       <section className="card" style={{ marginTop: 14 }} aria-label="Process events">

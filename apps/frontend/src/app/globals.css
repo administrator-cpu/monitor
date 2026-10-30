@@ -779,3 +779,15 @@ ul.plain {
 ul.plain li {
   padding: 3px 0;
 }
+
+/* Host switcher (phase 11 M2): sits in the page header next to the connection badge. */
+.host-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.host-switch select {
+  width: auto;
+  padding: 5px 9px;
+}

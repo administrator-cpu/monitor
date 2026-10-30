@@ -219,3 +219,39 @@ test('an admin adds a host; its agent enrolls once, reports, and is refused afte
   await expect(page.locator('body')).toContainText('host_revoked', { timeout: 15_000 });
   await expect(page.locator('body')).toContainText('host_enrolled');
 });
+
+test('the host switcher shows the demo Ubuntu host, reported by the real node agent (phase 11 M2)', async () => {
+  const page = shared;
+  await page.goto('/host');
+  const pick = page.getByRole('combobox', { name: 'Host' });
+  await expect(pick).toBeVisible({ timeout: 30_000 });
+  await pick.selectOption({ label: 'ubuntu-acs' });
+  await expect(page).toHaveURL(/\/host\?host=\d+$/);
+  await expect(page.getByRole('heading', { name: 'Host · ubuntu-acs', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('agent-info')).toContainText('0.2.0', { timeout: 30_000 });
+  await expect(page.getByTestId('agent-host-details')).toContainText('Last report');
+  await expect(page.getByRole('region', { name: 'Disks' })).toContainText('/');
+  await expect(page.getByRole('region', { name: 'Agent' })).toContainText('docker');
+  await expect(page.getByTestId('agent-host-stale')).toHaveCount(0);
+  // This server's own cards stay on its page.
+  await expect(page.getByRole('region', { name: 'Monitor health' })).toHaveCount(0);
+
+  await page.goto('/services');
+  await page.getByRole('combobox', { name: 'Host' }).selectOption({ label: 'ubuntu-acs' });
+  await expect(page.getByRole('heading', { name: 'Services · ubuntu-acs', level: 1 })).toBeVisible();
+  const list = page.getByRole('region', { name: 'Services' });
+  await expect(list).toContainText('genieacs-cwmp', { timeout: 30_000 });
+  await expect(list).not.toContainText('chatty');
+  const cpe = list.getByRole('row').filter({ hasText: 'acs/cpe-sim' });
+  await expect(cpe).toContainText('stopped');
+  await cpe.getByRole('link', { name: 'cpe-sim' }).click();
+  await expect(page.getByRole('heading', { name: 'cpe-sim', level: 1 })).toBeVisible();
+  await expect(page.locator('body')).toContainText('container acs/cpe-sim');
+  await expect(page.locator('body')).toContainText('Container logs arrive with phase 11 step M3');
+
+  // Back to this server: the address loses ?host and PM2's services return.
+  await page.goto('/services?host=2');
+  await page.getByRole('combobox', { name: 'Host' }).selectOption({ label: 'windows-vps (this server)' });
+  await expect(page).toHaveURL(/\/services$/);
+  await expect(page.getByRole('region', { name: 'Services' })).toContainText('chatty');
+});

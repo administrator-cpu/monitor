@@ -20,7 +20,7 @@
     "mongo:check": "pnpm --filter @cc/backend mongo:check",
     "size:check": "pnpm --filter @cc/backend size:check",
     "agent:bench": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent bench",
-    "demo": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/backend demo"
+    "demo": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/node-agent build && pnpm --filter @cc/backend demo"
   },
   "devDependencies": {
     "prettier": "^3.9.9"

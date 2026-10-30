@@ -10,11 +10,15 @@
  *     "chatty.example.com", some 404s and the odd 500, plus a host that matches no service);
  *   - a pretend MongoDB (standalone or replica set, a running operation, new slow queries);
  *   - a real agent (@cc/agent) inside a small HTTP server, with three tenants and some sockets,
- *     reporting to the backend's ingest port as the service named by DEMO_AGENT_SERVICE.
+ *     reporting to the backend's ingest port as the service named by DEMO_AGENT_SERVICE;
+ *   - a second host (phase 11): a pretend Ubuntu server with the nine `acs` containers, reported by
+ *     the real node agent (@cc/node-agent) through /agent/v1 (scripts/demo-host.ts). DEMO_HOST=0
+ *     leaves it out.
  *
  * Environment: the same variables as the backend (SQLITE_PATH, LOG_ROOT, ALLOWED_ORIGINS, PORT_API...).
  * Extra: DEMO_NGINX_PORT (4120), DEMO_AGENT_SERVICE (chatty), DEMO_AGENT_INTERVAL_MS (5000),
- * DEMO_LONG_OP=1 (a Mongo operation that has been running for 90 s), DEMO_REPL=1 (replica set).
+ * DEMO_LONG_OP=1 (a Mongo operation that has been running for 90 s), DEMO_REPL=1 (replica set),
+ * DEMO_HOST_NAME (ubuntu-acs), DEMO_FLAP_S (300: cpe-sim stops for 2 minutes every 5; 0 never).
  */
 import dotenv from 'dotenv';
 import fs from 'node:fs';
@@ -23,6 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../src/config';
 import { start } from '../src';
+import { startDemoHost } from './demo-host';
 import type { MongoSource, RawOp, RawProfile, RawReplMember, RawServerStatus } from '../src/mongo/source';
 
 dotenv.config({ path: process.env.CC_ENV_FILE, quiet: true });
@@ -146,8 +151,12 @@ async function main(): Promise<void> {
     void fetch(`http://127.0.0.1:${port}/x`, { headers: { 'x-tenant': t, 'x-user': `${t}-user-${Math.floor(Math.random() * n)}` } }).catch(() => undefined);
   }, 120);
 
-  ctx.log.info({ api: `http://127.0.0.1:${config.portApi}`, ingest: running.ingestPort, nginx: nginxPort, agentService }, 'demo ready');
+  const apiBase = `http://${config.bindHost === '0.0.0.0' ? '127.0.0.1' : config.bindHost}:${config.portApi}`;
+  const stopHost = process.env.DEMO_HOST === '0' ? null : await startDemoHost(ctx, apiBase, dir);
+
+  ctx.log.info({ api: apiBase, ingest: running.ingestPort, nginx: nginxPort, agentService }, 'demo ready');
   const stop = async (): Promise<void> => {
+    await stopHost?.();
     clearInterval(load);
     clearInterval(traffic);
     monitor.stop();

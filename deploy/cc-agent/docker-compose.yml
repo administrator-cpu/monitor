@@ -1,0 +1,65 @@
+# Command Center agent for a Linux host (phase 11 M2; TRD 14.2, runbook-hosts.md "Adding a host").
+#
+# Two containers, no published port, nothing written on the host except the agent's own volume:
+#   cc-docker-proxy  the only one that sees the Docker socket; answers 403 to everything but the
+#                    reads the agent needs (and, from M5, start/stop/restart).
+#   cc-node-agent    reads /proc and the mounts read-only, asks the proxy about containers and
+#                    sends everything to the monitor over HTTPS. Never mounts the socket.
+#
+# On the host, once (the full steps: docs/runbook-hosts.md section 5):
+#   sudo install -d -m 700 -o root -g root /etc/cc-agent
+#   sudo install -m 600 -o root -g root /dev/null /etc/cc-agent/agent.env   # then paste the lines
+#   echo "DOCKER_GID=$(getent group docker | cut -d: -f3)" > .env              # next to this file
+#   sudo docker compose up -d
+# Compose reads env_file itself, so with a root-only agent.env every compose command needs sudo.
+#
+# Updating: `sudo docker compose pull && sudo docker compose up -d`. Pin a release with CC_TAG in
+# .env (e.g. CC_TAG=0.2.0, or sha-<commit>); `latest` follows main.
+
+name: cc-agent
+
+services:
+  cc-docker-proxy:
+    image: ghcr.io/administrator-cpu/cc-docker-proxy:${CC_TAG:-latest}
+    # The socket is root:docker 660; the proxy's own user only needs the docker group.
+    group_add: ["${DOCKER_GID:?set DOCKER_GID in .env next to this file: getent group docker | cut -d: -f3}"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      ALLOW_ACTIONS: "0" # M5 sets 1 for remote start/stop/restart
+    networks: [cc-internal]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    restart: unless-stopped
+
+  cc-node-agent:
+    image: ghcr.io/administrator-cpu/cc-node-agent:${CC_TAG:-latest}
+    user: "10001:10001"
+    # The host's process namespace, so /proc/1/net/dev and /proc/1/mountinfo are the host's (V21).
+    pid: host
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    env_file: /etc/cc-agent/agent.env
+    environment:
+      CC_DOCKER_URL: http://cc-docker-proxy:2375
+    volumes:
+      - /:/host:ro,rslave # statfs of the mounts in CC_DISKS; nothing is written
+      - /run:/host-run:ro # /run/reboot-required
+      - cc-agent-state:/var/lib/cc-agent # the host token: the only writable path
+    # cc-internal reaches only the proxy; cc-egress is the way out to the monitor. M4 adds the acs
+    # network (acs_default) for MongoDB and the application relay.
+    networks: [cc-internal, cc-egress]
+    depends_on: [cc-docker-proxy]
+    mem_limit: 200m
+    restart: unless-stopped
+
+networks:
+  cc-internal:
+    internal: true
+  cc-egress: {}
+
+volumes:
+  cc-agent-state: {}

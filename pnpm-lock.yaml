@@ -66,6 +66,9 @@ importers:
       '@cc/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@cc/node-agent':
+        specifier: workspace:*
+        version: link:../node-agent
       '@types/bcrypt':
         specifier: ^6.0.0
         version: 6.0.0

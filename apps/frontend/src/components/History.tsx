@@ -99,7 +99,7 @@ export function HistoryPanel({ path, charts, heading = 'History', children }: { 
   // A choice the limit no longer allows (the setting was lowered) falls back to the longest one allowed.
   const chosen = ranges.find((r) => r.id === rangeId) ?? ranges[ranges.length - 1]!;
   const range = useRange(chosen.ms);
-  const { data, error } = useSWR<HistoryResponse>(`${path}?from=${range.from}&to=${range.to}`, fetcher, {
+  const { data, error } = useSWR<HistoryResponse>(`${path}${path.includes('?') ? '&' : '?'}from=${range.from}&to=${range.to}`, fetcher, {
     refreshInterval: 60_000,
     keepPreviousData: true,
   });

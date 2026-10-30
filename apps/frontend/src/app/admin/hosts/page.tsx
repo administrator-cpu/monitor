@@ -27,6 +27,8 @@ function TokenPanel({ t, onClose }: { t: EnrollTokenResponse; onClose: () => voi
     `CC_HOST_NAME=${t.host.name}`,
     `CC_ENROLL_TOKEN=${t.enrollToken}`,
     'CC_PROJECTS=acs',
+    'CC_DISKS=/',
+    'CC_ACTIONS=off',
   ].join('\n');
   return (
     <section
@@ -46,8 +48,9 @@ function TokenPanel({ t, onClose }: { t: EnrollTokenResponse; onClose: () => voi
       </pre>
       <p className="muted">
         The agent exchanges it for its own host token on first start and keeps that on its state
-        volume. The agent image and its compose file arrive with phase 11 step M2 (runbook
-        &ldquo;Adding a host&rdquo;).
+        volume. Then start the agent with the compose file in <code>deploy/cc-agent</code> (runbook
+        &ldquo;Adding a host&rdquo; in <code>docs/runbook-hosts.md</code>); the host shows as online
+        within a minute.
       </p>
       <div className="row">
         <button

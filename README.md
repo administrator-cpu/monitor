@@ -35,7 +35,7 @@ The specification lives in `docs/`. These are the current versions (v3, 2026-10-
 | 9. History, search, correlation | Built | `src/rollup.ts`, `src/history.ts`, `src/logs/search*.ts`, migration `007_events` |
 | 10. Parts 0, A, B, C | Built | Auto-archive and disk filtering; `src/github`, migration `008_github`; `src/email`, `routes/webhooks.ts`, migration `009_email`; `src/pm2/actions.ts` |
 | 10.5. Audit fixes H1 to H9 | In progress | `docs/implementation-plan.md` |
-| 11. Multi-host (Ubuntu VPS through an agent) | M1 built: hosts, enrollment, `/agent/v1`, Admin → Hosts, `host.silent` | `src/hosts`, `src/routes/hosts.ts`, migration `010_hosts`; `docs/implementation-plan.md`, `docs/trd.md` section 14 |
+| 11. Multi-host (Ubuntu VPS through an agent) | M1 built: hosts, enrollment, `/agent/v1`, Admin → Hosts, `host.silent`. M2 built: node agent, Docker proxy, container services, host rules per host, host switcher | `src/hosts`, `src/routes/hosts.ts`, migrations `010_hosts`, `011_tls_certs_host`; `apps/node-agent`, `apps/docker-proxy`, `deploy/cc-agent`; `docs/runbook-hosts.md`, `docs/trd.md` section 14 |
 
 **Actions exist.** Admins, and engineers an admin has marked "Can operate", can restart, stop and start PM2 services from the service page (`POST /api/v1/services/:id/actions`). The target is resolved on the server from the service id, `monitor-api` itself and PM2 modules are refused, one action runs per service at a time with a 10-second cooldown, and every attempt is audited. There is no TOTP; see decision O3 in `docs/prd.md`.
 
@@ -84,7 +84,7 @@ Scripted admin creation: `CC_ADMIN_PASSWORD='...' pnpm --filter @cc/backend crea
 |---|---|
 | `pnpm typecheck` | Type-checks shared, backend and frontend |
 | `pnpm test` | Agent, backend and watchdog tests (Vitest) |
-| `pnpm demo` | Backend with pretend Nginx, MongoDB and an agent |
+| `pnpm demo` | Backend with pretend Nginx, MongoDB and an agent, plus a second host (`ubuntu-acs`) reported by the real node agent from a pretend `/proc` and Docker API |
 | `pnpm mongo:check` / `agent:bench` / `size:check` | Read-only proof, agent overhead, storage estimate |
 | `pnpm smoke:watchdog` | Real watchdog process against a fake target and mock Resend |
 | `pnpm pm2:check` | Backend PM2 integration against a real, throw-away PM2 daemon |
@@ -181,7 +181,7 @@ Recorded during phases 1 to 9 and kept here for reference. Later differences bet
 - **No dual-axis correlation chart:** CPU, users and sockets are stacked on one shared x axis.
 - **Windows events:** critical, error and warning are collected, only critical alerts.
 - **Log search:** newest first by default, context lines capped at 2000, `matched` counts returned matches.
-- **E2E** runs against `apps/backend/scripts/demo-server.ts`, a pretend Nginx, MongoDB and agent around the real backend.
+- **E2E** runs against `apps/backend/scripts/demo-server.ts`, a pretend Nginx, MongoDB and agent around the real backend, and `scripts/demo-host.ts`, a second host reported by the real node agent.
 
 ## Layout
 

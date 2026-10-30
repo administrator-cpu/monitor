@@ -497,6 +497,8 @@ volumes:
 ```
 
 - The agent is never on the host network and never mounts the Docker socket.
+
+**As built (M2, patch 0023):** `deploy/cc-agent/docker-compose.yml`. Differences from the sketch above, until M4 adds what needs them: the agent reaches the monitor through its own bridge network `cc-egress` (the `acs` network joins in M4, for MongoDB and the relay); no `adm` group, `/var/log`, Caddy log or backup mounts (M4); the proxy keeps the image's `haproxy` user and gets the host's docker group through `group_add: ${DOCKER_GID}` (from `.env` next to the compose file), with `read_only`, no capabilities and `ALLOW_ACTIONS=0`; memory limits 64 MB (proxy) and 200 MB (agent). The images are `ghcr.io/administrator-cpu/cc-node-agent` and `cc-docker-proxy`, tagged `latest`, the package version and `sha-<commit>` by `.github/workflows/images.yml`, which also smoke-tests them on pull requests. Compose reads `env_file` on the client, so with the root-only `/etc/cc-agent/agent.env` the compose commands run with `sudo`.
 - `cc-internal` is internal, so the proxy cannot reach the internet and only the agent can reach the proxy.
 - The relay listens on the agent's address in the `acs` network (port 4002). Nothing is published on the host.
 
@@ -585,7 +587,7 @@ Client addresses read from `auth.log` and `fail2ban.log` are never stored or sen
 - [Built, M1] `ServicesRepo` keys services by `(host_id, source_key)` instead of PM2 name; `source_key` is the PM2 name on host 1 and `<project>/<service>` on agent hosts. `list()` and `getByPm2Name()` mean host 1 unless another host or `'all'` is asked for, so the PM2, Nginx, GitHub and log-folder code is unchanged.
 - [Built, M1] The state store holds a `HostSlice` per host (`Map<hostId, HostSlice>`); host 1's slice is fed by the local collectors, an agent host's by its metrics. Processes are tagged with their host; `setProcesses` replaces one host's list only. Nginx, Mongo, TLS and Event Log state stay host 1 until M4.
 - Log folders: host 1 unchanged; other hosts under `LOG_ROOT\@<host name>\<project>.<service>\`.
-- `live` snapshots carry a host list plus the detail of the subscribed host, staying under 50 KB.
+- `live` snapshots carry a host list plus the detail of the subscribed host, staying under 50 KB. [Built, M2: the host list (`hosts`, every host not revoked, with its status) feeds the switcher; the detail is still host 1's. The Host and Services pages read an agent host over REST every 10 s (`/host?host=<id>`, `/services?host=<id>`), which matches its 10 s reports. Subscribing to another host's detail comes with M6.]
 - [Built, M1] Rollup groups by host where the table has `host_id`; persistence writes `metrics_host` and `metrics_disk` per host; `GET /history/host?host=<id>` reads one host (host 1 by default).
 
 ### 14.7 Remote actions
@@ -656,7 +658,7 @@ A collector on the Windows backend, per host, configured on the Hosts page:
 | Step | Scope | Main tests |
 |---|---|---|
 | M1 (merged, deployed, V26 passed) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
-| M2 (monitor side in patch 0021, agent and proxy in 0022) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
+| M2 (patches 0021 to 0023) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
 | M3 | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
 | M4 | Migration `012`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
 | M5 | Migration `013`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |
