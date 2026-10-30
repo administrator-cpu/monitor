@@ -6,9 +6,9 @@ import useSWR from 'swr';
 import type { ServicesResponse } from '@cc/shared';
 import { GitBadgeTag } from '@/components/GitCard';
 import { HostSwitcher, useHostId } from '@/components/HostSwitcher';
-import { processLabel, StatusDot } from '@/components/ServiceStatus';
+import { hasFigures, processLabel, StatusDot, uptimeText } from '@/components/ServiceStatus';
 import { PageHead, Shell } from '@/components/Shell';
-import { bytes, duration, pct, timeAgo } from '@/lib/format';
+import { bytes, pct, timeAgo } from '@/lib/format';
 import { fetcher } from '@/lib/api';
 import { useIsFresh, useLive } from '@/lib/live';
 
@@ -79,10 +79,12 @@ function Services() {
                       <StatusDot p={p} /> {processLabel(p)}
                       {p?.health === 'unhealthy' && <span className="tag crit" style={{ marginLeft: 8 }}>unhealthy</span>}
                     </td>
-                    <td className="num">{p && p.instances > 0 ? pct(p.cpuPct) : '—'}</td>
-                    <td className="num">{p && p.instances > 0 ? bytes(p.memBytes, 0) : '—'}</td>
+                    <td className="num">{hasFigures(p) ? pct(p.cpuPct) : '—'}</td>
+                    <td className="num">{hasFigures(p) ? bytes(p.memBytes, 0) : '—'}</td>
                     <td className="num">{p ? p.restarts : '—'}</td>
-                    <td className="num">{p && p.instances > 0 ? duration(p.uptimeS) : '—'}</td>
+                    <td className="num" title={p?.uptimeApprox ? 'Started before the agent was watching; Docker only gives this to the unit.' : undefined}>
+                      {uptimeText(p)}
+                    </td>
                     <td>{timeAgo(s.lastSeenAt)}</td>
                   </tr>
                 );

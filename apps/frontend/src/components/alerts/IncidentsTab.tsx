@@ -46,7 +46,11 @@ export function IncidentsTab({ isAdmin, serviceId, focus }: { isAdmin: boolean; 
   const [more, setMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { subscribeEvents } = useLive();
+  const { subscribeEvents, live } = useLive();
+  // With more than one host, every row says which one it is about.
+  const hostNames = new Map((live?.hosts ?? []).map((h) => [h.id, h.name]));
+  const hostOf = (id: number) => hostNames.get(id) ?? `host ${id}`;
+  const multiHost = hostNames.size > 1;
 
   const load = useCallback(
     async (before?: number) => {
@@ -101,7 +105,16 @@ export function IncidentsTab({ isAdmin, serviceId, focus }: { isAdmin: boolean; 
                   )}
                 </td>
                 <td>{i.ruleName}</td>
-                <td>{i.serviceId ? <Link href={`/services/${i.serviceId}`}>{i.serviceName}</Link> : <span className="muted">host</span>}</td>
+                <td>
+                  {i.serviceId ? (
+                    <>
+                      <Link href={`/services/${i.serviceId}`}>{i.serviceName}</Link>
+                      {multiHost && <span className="muted"> · {hostOf(i.hostId)}</span>}
+                    </>
+                  ) : (
+                    <span className="muted">{multiHost ? hostOf(i.hostId) : 'host'}</span>
+                  )}
+                </td>
                 <td>
                   {i.summary}
                   {isAdmin && (

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type uPlot from 'uplot';
+import { breakGaps } from '@cc/shared';
 import 'uplot/dist/uPlot.min.css';
 
 export interface ChartSeries {
@@ -36,8 +37,10 @@ export function UPlotChart({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
-  const latest = useRef(data);
-  latest.current = data;
+  // A stretch with no samples (agent stopped, monitor restarting) is drawn as a gap, not a line.
+  const shown = useMemo(() => breakGaps(data) as uPlot.AlignedData, [data]);
+  const latest = useRef(shown);
+  latest.current = shown;
   const [scheme, setScheme] = useState(0);
 
   useEffect(() => {
@@ -107,8 +110,8 @@ export function UPlotChart({
   }, [scheme, height, yRange?.[0], yRange?.[1], series.map((s) => s.label + s.colorVar).join('|')]);
 
   useEffect(() => {
-    plot.current?.setData(data);
-  }, [data]);
+    plot.current?.setData(shown);
+  }, [shown]);
 
   return (
     <div

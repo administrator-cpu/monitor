@@ -63,7 +63,8 @@ async function fakeMonitor(opts: { status?: (route: string) => number; retryAfte
 }
 
 /** cc-docker-proxy stand-in: the list, stats and an event stream the test can write to. */
-async function fakeDocker(list = ACS) {
+async function fakeDocker(initial = ACS) {
+  const list = initial.map((c) => ({ ...c }));
   const streams: import('node:http').ServerResponse[] = [];
   const paths: string[] = [];
   const server = await serve((req, res) => {
@@ -98,6 +99,7 @@ async function fakeDocker(list = ACS) {
     ...server,
     paths,
     emit: (e: unknown) => streams.forEach((r) => r.write(JSON.stringify(e) + '\n')),
+    setStatus: (id: string, status: string) => void (list.find((c) => c.Id === id)!.Status = status),
     waitForStream: async () => {
       for (let i = 0; i < 100 && streams.length === 0; i++) await new Promise((r) => setTimeout(r, 20));
     },
@@ -208,7 +210,7 @@ describe('NodeAgent', () => {
     const clock = { t: 1_800_000_000_000 };
     const reader = new HostReader({ procRoot: f.procRoot, hostRun: f.hostRun, disks: config.disks, now: () => clock.t });
     await reader.prime();
-    const agent = new NodeAgent({
+    const deps: ConstructorParameters<typeof NodeAgent>[0] = {
       config,
       client,
       reader,
@@ -217,9 +219,10 @@ describe('NodeAgent', () => {
       hostname: 'c1abcdef0123', // the agent's own container id, as Docker sets the hostname
       now: () => clock.t,
       random: () => 0.5,
-    });
+    };
+    const agent = new NodeAgent(deps);
     cleanup.push(() => agent.stop());
-    return { m, d, f, agent, clock };
+    return { m, d, f, agent, clock, deps };
   }
 
   it('reports the host and the acs services the monitor accepts, finding its own project', async () => {
@@ -285,6 +288,36 @@ describe('NodeAgent', () => {
     await agent.tick();
     const last = m.got.filter((g) => g.route === 'metrics').at(-1)!.body as AgentMetrics;
     expect(last.containers!.find((c) => c.key === 'acs/cpe-sim')!.restartsTotal).toBe(1);
+  });
+
+  it('keeps restart counts and exact start times across a restart of the agent', async () => {
+    const saved: { snap: unknown } = { snap: null };
+    const store = { load: async () => saved.snap, save: async (x: unknown) => void (saved.snap = JSON.parse(JSON.stringify(x))) };
+    const { m, d, deps, clock } = await setup();
+    // The first agent, with a store: sees genieacs-nbi die and start, then stops (and saves).
+    const first = new NodeAgent({ ...deps, store });
+    await first.loadState();
+    first.start();
+    await d.waitForStream();
+    const attrs = { 'com.docker.compose.project': 'acs', 'com.docker.compose.service': 'cpe-sim' };
+    const at = Math.floor(clock.t / 1000);
+    d.emit({ Type: 'container', Action: 'die', Actor: { ID: 'a5', Attributes: { ...attrs, 'com.docker.compose.service': 'genieacs-nbi' } }, time: at - 60 });
+    d.emit({ Type: 'container', Action: 'start', Actor: { ID: 'a5', Attributes: { ...attrs, 'com.docker.compose.service': 'genieacs-nbi' } }, time: at - 50 });
+    for (let i = 0; i < 50 && !m.got.some((g) => g.route === 'events'); i++) await new Promise((r) => setTimeout(r, 50));
+    await first.stop();
+    expect(saved.snap).toMatchObject({ v: 1, restarts: { 'acs/genieacs-nbi': 1 }, startedAt: { a5: (at - 50) * 1000 } });
+
+    // The second agent loads it: the count and the exact start survive ("Up 2 hours" in the fake
+    // Docker would not fit a start 50 s ago, so the fake list is told the container is younger).
+    d.setStatus('a5', 'Up About a minute');
+    const second = new NodeAgent({ ...deps, store });
+    await second.loadState();
+    clock.t += 10_000;
+    await second.tick();
+    const nbi = (m.got.filter((g) => g.route === 'metrics').at(-1)!.body as AgentMetrics).containers!.find((c) => c.key === 'acs/genieacs-nbi')!;
+    expect(nbi).toMatchObject({ restartsTotal: 1, startedAt: (at - 50) * 1000 });
+    expect(nbi.startedApprox).toBeUndefined();
+    await second.stop();
   });
 
   it('waits 10 minutes after a 401 and does not send in between', async () => {

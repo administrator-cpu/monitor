@@ -83,6 +83,7 @@ export class ContainerTracker {
           status === 'online' && c.startedAt !== null
             ? Math.max(0, Math.floor((agentTs - c.startedAt) / 1000))
             : 0,
+        ...(status === 'online' && c.startedAt !== null && c.startedApprox ? { uptimeApprox: true } : {}),
         health: c.health,
         ...(exit ? { lastExit: exit } : {}),
       });

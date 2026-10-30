@@ -3,7 +3,7 @@ import type { AgentContainer, AgentEvents } from '@cc/shared';
 /**
  * Docker through cc-docker-proxy (TRD 14.4): the container list, one-shot stats and the event
  * stream. Inspect is not allowed by the proxy and not needed: the list carries labels, state and
- * health; restarts are counted from events.
+ * health; restarts and exact start times come from events (and are kept on the state volume).
  */
 
 export const LABEL_PROJECT = 'com.docker.compose.project';
@@ -131,6 +131,41 @@ export function upForSeconds(status: string): number | null {
   return Number(n[1]) * unit;
 }
 
+const HOUR = 3600;
+
+/**
+ * The range of seconds Docker's "Up …" text stands for, from go-units HumanDuration: seconds and
+ * minutes are truncated, hours rounded, days, weeks and months counted in rounded hours, years
+ * truncated. `[lo, hi)`; null for text that is not an uptime.
+ */
+export function upRange(status: string): [number, number] | null {
+  const m = /^Up (.+?)(?: \(.*\))?$/.exec(status.trim());
+  if (!m) return null;
+  const s = m[1]!.toLowerCase();
+  if (s.startsWith('less than a second')) return [0, 1];
+  if (s === 'about a minute') return [60, 120];
+  if (s === 'about an hour') return [HOUR, 1.5 * HOUR];
+  const n = /^(\d+) (second|minute|hour|day|week|month|year)s?$/.exec(s);
+  if (!n) return null;
+  const k = Number(n[1]);
+  switch (n[2]) {
+    case 'second':
+      return [k, k + 1];
+    case 'minute':
+      return [k * 60, (k + 1) * 60];
+    case 'hour':
+      return [(k - 0.5) * HOUR, (k + 0.5) * HOUR];
+    case 'day':
+      return [(24 * k - 0.5) * HOUR, (24 * (k + 1) - 0.5) * HOUR];
+    case 'week':
+      return [(168 * k - 0.5) * HOUR, (168 * (k + 1) - 0.5) * HOUR];
+    case 'month':
+      return [(720 * k - 0.5) * HOUR, (720 * (k + 1) - 0.5) * HOUR];
+    default:
+      return [8760 * k * HOUR, 8760 * (k + 1) * HOUR];
+  }
+}
+
 export function healthOf(status: string): AgentContainer['health'] {
   if (/\(unhealthy\)/.test(status)) return 'unhealthy';
   if (/\(health: starting\)/.test(status)) return 'starting';
@@ -178,11 +213,15 @@ export function aggregate(
     const state: State = (STATES as readonly string[]).includes(c.State) ? (c.State as State) : 'dead';
     const running = state === 'running';
     let started: number | null = null;
+    let approx = false;
     if (running) {
       started = o.startedAt.get(c.Id) ?? null;
       if (started === null) {
         const up = upForSeconds(c.Status);
-        if (up !== null) started = o.now - up * 1000;
+        if (up !== null) {
+          started = o.now - up * 1000;
+          approx = true;
+        }
       }
     }
     const st = running ? o.stats.get(c.Id) : undefined;
@@ -200,6 +239,7 @@ export function aggregate(
         cpuPct: 0,
         memBytes: 0,
         startedAt: started,
+        ...(approx ? { startedApprox: true } : {}),
         ...(own ? { own: true } : {}),
       };
       groups.set(key, g);
@@ -207,7 +247,11 @@ export function aggregate(
       if (STATE_RANK[state] > STATE_RANK[g.state]) g.state = state;
       if (health && (!g.health || HEALTH_RANK[health] > HEALTH_RANK[g.health])) g.health = health;
       // Uptime is the youngest running instance's, as for PM2 cluster instances.
-      if (started !== null && (g.startedAt === null || started > g.startedAt)) g.startedAt = started;
+      if (started !== null && (g.startedAt === null || started > g.startedAt)) {
+        g.startedAt = started;
+        if (approx) g.startedApprox = true;
+        else delete g.startedApprox;
+      }
     }
     g.instances += 1;
     if (running) g.instancesRunning += 1;
@@ -220,17 +264,101 @@ export function aggregate(
 
 type OutEvent = AgentEvents['events'][number];
 
+/** What the agent keeps on its state volume so a restart of the agent forgets nothing. */
+export interface TrackerSnapshot {
+  v: 1;
+  /** Start times seen in events, by container id. */
+  startedAt: Record<string, number>;
+  /** Restarts counted so far, by `<project>/<service>`. */
+  restarts: Record<string, number>;
+  /** Containers seen to die and not started since. */
+  died: string[];
+}
+
+/** Slack when a saved start time is checked against Docker's "Up …" text (clock steps, rounding). */
+const RECONCILE_SLACK_S = 90;
+
 /**
  * Turns Docker events into the monitor's container events and counts restarts: a start that
  * follows a die of the same container is one restart, whether Docker's restart policy, `docker
  * restart` or a stop and start caused it (the monitor works with differences, as for PM2).
+ *
+ * Its state is saved on the agent's volume (`snapshot`, `restore`), so restarting the agent keeps
+ * the restart counts and the exact start times. What happened while the agent was not running is
+ * worked out from the first container list (`reconcile`).
  */
 export class EventTracker {
   readonly startedAt = new Map<string, number>();
   readonly restarts = new Map<string, number>();
   private died = new Set<string>();
+  /** Set by every change worth saving; cleared by the saver. */
+  dirty = false;
 
   constructor(private readonly watched: (project: string) => boolean) {}
+
+  snapshot(): TrackerSnapshot {
+    return {
+      v: 1,
+      startedAt: Object.fromEntries(this.startedAt),
+      restarts: Object.fromEntries(this.restarts),
+      died: [...this.died],
+    };
+  }
+
+  /** Loads a saved snapshot; anything malformed is ignored (the agent then starts afresh). */
+  restore(raw: unknown): boolean {
+    if (!raw || typeof raw !== 'object') return false;
+    const s = raw as Partial<TrackerSnapshot>;
+    if (s.v !== 1 || !s.startedAt || typeof s.startedAt !== 'object' || !s.restarts || typeof s.restarts !== 'object' || !Array.isArray(s.died)) return false;
+    for (const [id, t] of Object.entries(s.startedAt)) {
+      if (typeof t === 'number' && Number.isFinite(t) && t > 0 && !this.startedAt.has(id)) this.startedAt.set(id, t);
+    }
+    for (const [key, n] of Object.entries(s.restarts)) {
+      if (Number.isInteger(n) && (n as number) >= 0) this.restarts.set(key, Math.max(n as number, this.restarts.get(key) ?? 0));
+    }
+    for (const id of s.died) if (typeof id === 'string') this.died.add(id);
+    return true;
+  }
+
+  /**
+   * Squares the restored state with the containers as they are now, after the agent was away:
+   * - a saved start that does not fit the "Up …" text (the container restarted meanwhile) is
+   *   dropped and counted as one restart (there may have been more; Docker does not say);
+   * - a container saved as dead that is running again counts one restart;
+   * - a container saved as running that is no longer running is remembered as dead;
+   * - containers that no longer exist are forgotten.
+   */
+  reconcile(list: readonly DockerContainer[], now: number): void {
+    const present = new Set<string>();
+    for (const c of list) {
+      present.add(c.Id);
+      const key = containerKeyOf(c.Labels);
+      if (!key || !this.watched(key.slice(0, key.indexOf('/')))) continue;
+      const saved = this.startedAt.get(c.Id);
+      if (c.State === 'running') {
+        if (saved !== undefined) {
+          const range = upRange(c.Status);
+          const up = (now - saved) / 1000;
+          if (range && (up < range[0] - RECONCILE_SLACK_S || up > range[1] + RECONCILE_SLACK_S)) {
+            this.startedAt.delete(c.Id);
+            if (up > range[1]) this.count(key);
+          }
+        } else if (this.died.delete(c.Id)) {
+          this.count(key);
+        }
+      } else if (saved !== undefined) {
+        this.startedAt.delete(c.Id);
+        this.died.add(c.Id);
+      }
+    }
+    for (const id of [...this.startedAt.keys()]) if (!present.has(id)) this.startedAt.delete(id);
+    for (const id of [...this.died]) if (!present.has(id)) this.died.delete(id);
+    this.dirty = true;
+  }
+
+  private count(key: string): void {
+    this.restarts.set(key, (this.restarts.get(key) ?? 0) + 1);
+  }
 
   handle(e: DockerEvent, now: number): OutEvent | null {
     if (e.Type !== 'container' || !e.Action || !e.Actor?.ID) return null;
@@ -244,12 +372,14 @@ export class EventTracker {
       case 'die': {
         this.died.add(id);
         this.startedAt.delete(id);
+        this.dirty = true;
         const code = Number(attrs.exitCode);
         return { ts, service: key, event: 'die', ...(Number.isInteger(code) ? { detail: { exitCode: code } } : {}) };
       }
       case 'start':
-        if (this.died.delete(id)) this.restarts.set(key, (this.restarts.get(key) ?? 0) + 1);
+        if (this.died.delete(id)) this.count(key);
         this.startedAt.set(id, ts);
+        this.dirty = true;
         return { ts, service: key, event: 'start' };
       case 'stop':
         return { ts, service: key, event: 'stop' };
@@ -262,6 +392,7 @@ export class EventTracker {
       case 'destroy':
         this.died.delete(id);
         this.startedAt.delete(id);
+        this.dirty = true;
         return null;
       default:
         return null; // create, exec_*, attach, kill, pause, …: not reported

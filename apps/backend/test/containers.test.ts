@@ -145,6 +145,29 @@ describe('agent hosts in the monitor (M2)', () => {
     expect(stored.n).toBe(3);
   });
 
+  it('passes on an approximate uptime, and marks a silent host’s services stale on the pages', async () => {
+    await setup();
+    await report({ containers: [ctr('acs/api', { startedApprox: true }), ctr('acs/cpe-sim')] });
+    const svc = async () => (await get('/services?host=2')).json().services as { sourceKey: string; id: number; process: Record<string, unknown> }[];
+    let list = await svc();
+    expect(list.find((s) => s.sourceKey === 'acs/api')!.process).toMatchObject({ uptimeApprox: true, status: 'online' });
+    expect(list.find((s) => s.sourceKey === 'acs/cpe-sim')!.process.uptimeApprox).toBeUndefined();
+    expect(list.every((s) => s.process.stale === undefined)).toBe(true);
+
+    // 35 s without a report: still current. A moment later: stale, on the list and the service page.
+    t.clock.t += 35_000;
+    expect((await svc()).every((s) => s.process.stale === undefined)).toBe(true);
+    t.clock.t += 1_000;
+    list = await svc();
+    expect(list.every((s) => s.process.stale === true)).toBe(true);
+    expect(list[0]!.process.status).toBe('online'); // the last known status, flagged, not rewritten
+    const detail = (await get(`/services/${list[0]!.id}`)).json();
+    expect(detail.process.stale).toBe(true);
+    // The next report makes them current again; host 1's services are never marked.
+    await report();
+    expect((await svc()).every((s) => s.process.stale === undefined)).toBe(true);
+  });
+
   it('maps Docker states to the dashboard statuses', () => {
     expect(
       (['running', 'restarting', 'removing', 'dead', 'exited', 'paused', 'created'] as const).map(containerStatus),

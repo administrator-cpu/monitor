@@ -1,7 +1,7 @@
 import type { AgentContainer, AgentEvents, AgentMetrics } from '@cc/shared';
 import { errText, type MonitorClient, type PostResult } from './client';
 import type { AgentConfig } from './config';
-import { aggregate, type DockerClient, type DockerContainer, EventTracker, LABEL_PROJECT } from './docker';
+import { aggregate, type DockerClient, type DockerContainer, EventTracker, LABEL_PROJECT, type TrackerSnapshot } from './docker';
 import type { Log } from './log';
 import { diskUsage, type HostReader } from './proc';
 
@@ -17,6 +17,14 @@ export const TOO_OLD_WAIT_MS = 3_600_000;
 /** Events waiting for the monitor; past this the oldest are dropped (and counted in the log). */
 const MAX_QUEUED_EVENTS = 1_000;
 const STATS_CONCURRENCY = 4;
+/** Container state changes are saved at most this often (and once more when the agent stops). */
+export const SAVE_DELAY_MS = 2_000;
+
+/** Where the restart counts and start times survive a restart of the agent (the state volume). */
+export interface TrackerStore {
+  load(): Promise<unknown>;
+  save(s: TrackerSnapshot): Promise<void>;
+}
 
 export interface AgentDeps {
   config: AgentConfig;
@@ -26,6 +34,8 @@ export interface AgentDeps {
   log: Log;
   /** The container's hostname, which Docker sets to the start of its id unless told otherwise. */
   hostname: string;
+  /** Absent in tests that do not need it: the state then lives in memory only. */
+  store?: TrackerStore;
   now?: () => number;
   random?: () => number;
 }
@@ -54,6 +64,9 @@ export class NodeAgent {
   private blockedUntil = 0;
   private failures = 0;
   private lastRejectLog = new Map<string, number>();
+  /** True after a saved state was loaded, until the first container list squares it with Docker. */
+  private reconcilePending = false;
+  private saveTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly d: AgentDeps) {
     this.now = d.now ?? Date.now;
@@ -62,6 +75,43 @@ export class NodeAgent {
     this.ownProject = d.config.ownProject;
     this.tracker = new EventTracker((p) => this.projects.has(p) || p === this.ownProject);
     for (const n of ['host', 'disks', 'docker', 'events', 'monitor'] as const) this.states.set(n, { lastOkAt: null, error: null });
+  }
+
+  /**
+   * Loads the restart counts and start times saved by the previous run; call before `start`. A
+   * missing or unreadable file is a fresh start.
+   */
+  async loadState(): Promise<void> {
+    if (!this.d.store) return;
+    try {
+      const raw = await this.d.store.load();
+      if (raw !== null && raw !== undefined) {
+        if (this.tracker.restore(raw)) this.reconcilePending = true;
+        else this.d.log.warn('ignored an unreadable saved container state');
+      }
+    } catch (e) {
+      this.d.log.warn('could not read the saved container state', { error: errText(e) });
+    }
+  }
+
+  /** Saves the tracker if it changed; at most once per SAVE_DELAY_MS. */
+  private scheduleSave(): void {
+    if (!this.d.store || !this.tracker.dirty || this.saveTimer || !this.running) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      void this.saveState();
+    }, SAVE_DELAY_MS);
+  }
+
+  async saveState(): Promise<void> {
+    if (!this.d.store || !this.tracker.dirty) return;
+    this.tracker.dirty = false;
+    try {
+      await this.d.store.save(this.tracker.snapshot());
+    } catch (e) {
+      this.tracker.dirty = true;
+      this.d.log.warn('could not save the container state', { error: errText(e) });
+    }
   }
 
   private ok(name: CollectorName): void {
@@ -130,6 +180,11 @@ export class NodeAgent {
     } catch (e) {
       this.fail('docker', e);
       return undefined;
+    }
+    if (this.reconcilePending) {
+      this.reconcilePending = false;
+      this.tracker.reconcile(list, this.now());
+      this.scheduleSave();
     }
     if (!this.ownProject) {
       const self = list.find((x) => this.d.hostname.length >= 12 && x.Id.startsWith(this.d.hostname));
@@ -233,6 +288,7 @@ export class NodeAgent {
   /** A Docker event; container events are queued and sent within half a second. */
   onDockerEvent(e: Parameters<EventTracker['handle']>[0]): void {
     const out = this.tracker.handle(e, this.now());
+    this.scheduleSave();
     if (!out) return;
     this.queue.push(out);
     if (this.queue.length > MAX_QUEUED_EVENTS) {
@@ -305,7 +361,10 @@ export class NodeAgent {
     this.running = false;
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.flushTimer) clearTimeout(this.flushTimer);
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
     this.eventsAbort?.abort();
+    await this.saveState();
     // A last try for events still queued, so a restart of the agent loses none.
     if (this.queue.length > 0 && !this.blocked()) await this.flushEvents().catch(() => undefined);
   }
