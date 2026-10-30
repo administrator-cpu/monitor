@@ -1,6 +1,6 @@
 # Runbook: Nginx in front of monitor-api (H8, phase 11 M1)
 
-The current reference for the Nginx configuration on the Windows VPS. The configuration itself lives only on the server (for example `C:\nginx\conf\nginx.conf`); this file is what it should contain for `monitor-api.thediv.in`. The blocks below were checked with `nginx -t` and a burst test against Nginx 1.24, and `apps/backend/test/nginx-config.test.ts` repeats both checks in CI wherever `nginx` is installed.
+The current reference for the Nginx configuration on the Windows VPS. The configuration itself lives only on the server, in `C:\nginx-1.30.2\conf\nginx.conf`; this file is what it should contain for `monitor-api.thediv.in`. The blocks below were checked with `nginx -t` and a burst test against Nginx 1.24, and `apps/backend/test/nginx-config.test.ts` repeats both checks in CI wherever `nginx` is installed.
 
 ## 1. What is limited
 
@@ -17,18 +17,18 @@ Everything else goes through the general `location /` and is limited only by the
 
 ## 2. Configuration
 
-In the `http` block of `nginx.conf`, once (the `auth` zone is already there; add the rest):
+In the `http` block of `nginx.conf`, once. The zone names are the ones already on the server (`mon_auth`, `mon_search`); section 2.1 says which lines are there and which are still to add:
 
 ```nginx
 # --- Command Center rate limits (http block, once) ---------------------------
-limit_req_zone $binary_remote_addr zone=auth:10m rate=30r/m;
+limit_req_zone $binary_remote_addr zone=mon_auth:10m rate=30r/m;
 limit_req_zone $binary_remote_addr zone=webhooks:10m rate=120r/m;
 # CORS preflights for the search (OPTIONS) get an empty key, which Nginx does not limit.
 map $request_method $cc_search_key {
     OPTIONS "";
     default $binary_remote_addr;
 }
-limit_req_zone $cc_search_key zone=logsearch:10m rate=6r/m;
+limit_req_zone $cc_search_key zone=mon_search:10m rate=6r/m;
 # Phase 11: agents on other hosts (one address per host).
 limit_req_zone $binary_remote_addr zone=agents:10m rate=1200r/m;
 ```
@@ -42,7 +42,7 @@ server {
     # ssl_certificate / ssl_certificate_key: unchanged, managed by the ACME client
 
     location /api/v1/auth/ {
-        limit_req zone=auth burst=10 nodelay;
+        limit_req zone=mon_auth burst=10 nodelay;
         limit_req_status 429;
         error_page 429 = @cc_too_many;
         proxy_pass http://127.0.0.1:4111;
@@ -65,7 +65,7 @@ server {
 
     # H8: log search reads files on E: and is expensive. 6 per minute per address, 5 at once.
     location = /api/v1/logs/search {
-        limit_req zone=logsearch burst=5 nodelay;
+        limit_req zone=mon_search burst=5 nodelay;
         limit_req_status 429;
         error_page 429 = @cc_too_many;
         proxy_pass http://127.0.0.1:4111;
@@ -113,13 +113,26 @@ server {
 }
 ```
 
+### 2.1 State on the server (2026-10-30)
+
+Nginx 1.30.2 in `C:\nginx-1.30.2`. Compared with section 2:
+
+| Part | On the server | Still to do (H8, V11) |
+|---|---|---|
+| `mon_auth` zone and `/api/v1/auth/` | yes, 30 per minute | add `error_page 429 = @cc_too_many;` |
+| `mon_search` zone and `location = /api/v1/logs/search` | yes, but 30 per minute and keyed on the address for every method | change the rate to `6r/m`, key it on `$cc_search_key` (the `map` above), add `error_page 429 = @cc_too_many;` |
+| `webhooks` zone and `/webhooks/` | no | add both |
+| `@cc_too_many` (JSON 429) | no | add it |
+| `agents` zone and `/agent/` | **yes, since 2026-10-30 15:55** (zone on line 27, location on line 533 before `location /`; backup `conf\nginx.conf.before-m1`; V26 passed) | nothing |
+| `client_max_body_size` | `50M` in the `http` block | nothing: the `location` values above override it for `/webhooks/` and `/agent/` |
+
 ## 3. Applying it on the server
 
-1. Copy the current file first: `Copy-Item C:\nginx\conf\nginx.conf C:\nginx\conf\nginx.conf.before-h8` (for the phase 11 step, `.before-m1`).
+1. Copy the current file first: `Copy-Item C:\nginx-1.30.2\conf\nginx.conf C:\nginx-1.30.2\conf\nginx.conf.before-h8` (the phase 11 step used `.before-m1`).
 2. Edit `nginx.conf` as in section 2.
 3. Test, then reload (from the Nginx folder, as the account that runs Nginx):
    ```powershell
-   cd C:\nginx
+   cd C:\nginx-1.30.2
    .\nginx.exe -t
    .\nginx.exe -s reload
    ```
@@ -130,7 +143,7 @@ server {
    ```
    Expected: six answers from the app (403, because the test sends no dashboard header), then `429 429`. Wait a minute before searching in the dashboard: this used up your allowance. Then open Logs in the dashboard and run one search: it works as before.
 5. Resend: Email page counts keep rising after the next sent mail. A Resend test event (V5) still arrives.
-6. Phase 11 (`/agent/`), from your own computer:
+6. Phase 11 (`/agent/`), from your own computer (done 2026-10-30, V26, run on the server through the public name):
    ```powershell
    curl.exe -s -o NUL -w "%{http_code}\n" -X POST https://monitor-api.thediv.in/agent/v1/metrics
    curl.exe -s -o NUL -w "%{http_code}\n" -X POST -H "Origin: https://example.com" https://monitor-api.thediv.in/agent/v1/metrics

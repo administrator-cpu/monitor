@@ -1,0 +1,24 @@
+{
+  "name": "@cc/node-agent",
+  "version": "0.2.0",
+  "private": true,
+  "description": "cc-node-agent: reports a Linux host and its compose services to the Command Center monitor (phase 11, TRD 14). No runtime dependencies.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@cc/shared": "workspace:*",
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@cc/docker-proxy",
+  "version": "0.2.0",
+  "private": true,
+  "description": "cc-docker-proxy: HAProxy allowlist in front of the Docker socket for the node agent (TRD 14.4). The image is built from Dockerfile; this package only holds its test.",
+  "scripts": {
+    "test": "node --test test/proxy.test.mjs"
+  }
+}

@@ -377,14 +377,20 @@ export function agentIngestRoutes(scope: FastifyInstance, ctx: AppContext): void
         })),
         at,
       );
-      if (body.containers) slice.setContainers(body.containers, at);
+      // Without a `containers` section the agent could not read Docker this time: the services keep
+      // their last state and age out of freshness, instead of being reported as stopped.
+      if (body.containers) {
+        slice.setContainers(body.containers, at);
+        ctx.containers.report(id, body.containers, at, body.ts);
+      }
+      if (body.agent) slice.setAgentInfo(body.agent, at);
       ctx.hosts.countsOf(id).metrics += 1;
       return reply.code(204).send();
     },
   );
 
-  // Logs, events and relayed application reports are checked and counted now; M3, M2 and M4 store
-  // them. An agent built for those steps can therefore already talk to this monitor.
+  // Logs and relayed application reports are checked and counted now; M3 and M4 store them. An
+  // agent built for those steps can therefore already talk to this monitor.
   scope.post('/logs', { config: { agentEndpoint: 'logs', ...noLimit } }, async (req, reply) => {
     const body = agentLogsSchema.parse(req.body);
     touch(req);
@@ -400,6 +406,7 @@ export function agentIngestRoutes(scope: FastifyInstance, ctx: AppContext): void
     const c = ctx.hosts.countsOf(req.agentHost!.id);
     c.events += 1;
     c.eventCount += body.events.length;
+    ctx.containers.events(req.agentHost!.id, body.events);
     return reply.code(204).send();
   });
 

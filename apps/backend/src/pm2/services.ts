@@ -155,8 +155,9 @@ export class ServicesRepo {
   ): ServiceRow {
     const row = this.get(id);
     if (!row) throw new Error('not_found');
-    if (patch.isArchived === true && row.host_id === LOCAL_HOST_ID && livePm2Names.has(row.source_key)) {
-      // Archiving something PM2 still runs would be undone by the next discovery cycle.
+    if (patch.isArchived === true && livePm2Names.has(row.source_key)) {
+      // Archiving something PM2 (or the host's agent) still lists would be undone by the next
+      // discovery cycle. The caller passes the live keys of the service's own host.
       throw new ServiceConflictError('service_active');
     }
     if (patch.name !== undefined) {

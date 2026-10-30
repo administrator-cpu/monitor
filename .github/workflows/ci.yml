@@ -32,6 +32,14 @@ jobs:
       - name: Install (lockfile must match)
         run: pnpm install --frozen-lockfile
 
+      # HAProxy for the cc-docker-proxy allowlist test (the image uses the same 2.8 series).
+      # Without it that test is skipped, so check here that it is really there.
+      - name: Install HAProxy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq haproxy
+          haproxy -v | head -1
+
       - name: Build shared package
         run: pnpm build:shared
 

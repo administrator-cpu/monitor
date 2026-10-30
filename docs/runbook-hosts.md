@@ -1,10 +1,12 @@
-# Runbook: remote hosts on the monitor (phase 11, M1)
+# Runbook: remote hosts on the monitor (phase 11, M1 and M2)
 
-What the owner does on the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location, and check the Hosts page after the deploy. Nothing is installed on the Ubuntu server in M1; the agent and its compose file arrive with M2 (a later section of this runbook, "Adding a host").
+What the owner does for phase 11. On the Windows VPS for M1: check migration `010` on a copy of the production database **before merging** (done, V25), add the Nginx `/agent/` location (done 2026-10-30), and check the Hosts page after the deploy (done, V26 passed 2026-10-30). For M2: V27 before merging patch 0021 (section 1), then the agent on the Ubuntu server (section 5, "Adding a host").
 
 ## 1. Before merging: a migration on a copy (V25 for `010`)
 
 **V25 passed on 2026-10-30:** `010` on a copy of the deploy backup `monitor-20261030-123832-3cfc953.db` (13.8 MB, 12 services, 2 open incidents) took 0.61 s; every row was kept and services and open incidents were unchanged. The steps below are the same for every later migration (`011` onward).
+
+**V27, before merging patch 0021 (M2):** the same check for `011_tls_certs_host.sql`. Production is at `010`, so the expected line is `Applied 011_tls_certs_host.sql in <time>`, then `OK: every row kept`. It only rebuilds `tls_certs` (a handful of rows), so it should take well under a second.
 
 Migration `010_hosts.sql` rebuilds `services`, `metrics_host`, `metrics_disk` and `metrics_mongo` with a `host_id` column and adds `hosts`. Each migration runs in one transaction when the new backend starts; a failure stops startup and the deploy rolls back. Test it on a copy first (backend-schema.md section 13). The check is `apps\backend\scripts\migration-check.mjs`: it uses Node's built-in `node:sqlite`, so it needs Node 22.13 or later (the VPS has 22.22) and **nothing installed**, no `pnpm install` and no build.
 
@@ -27,7 +29,7 @@ Migration `010_hosts.sql` rebuilds `services`, `metrics_host`, `metrics_disk` an
    node C:\Apps\migration-test\apps\backend\scripts\migration-check.mjs E:\monitor-backups\migration-test\monitor.db
    ```
    Expected: `Applied 0NN_<name>.sql in <time>`, services and open incidents unchanged, `OK: every row kept`. Anything under a few seconds is fine. `Nothing to apply` means the copy already has the branch's migrations (for example a backup taken after the merge). Exit code 1 with `FAILED` or `threw` means do not merge; send the output.
-4. Record the time and the result in `implementation-plan.md` section 0.3 (V25 for `010`), then delete both test folders:
+4. Record the time and the result in `implementation-plan.md` section 0.3 (V25 for `010`, V27 for `011`), then delete both test folders:
    ```powershell
    cd C:\
    Remove-Item -Recurse -Force E:\monitor-backups\migration-test, C:\Apps\migration-test
@@ -75,3 +77,73 @@ Start-Service monitor-api
 ```
 
 Data collected between the deploy and the restore (metrics, incidents, audit entries of those minutes) is lost; log files on `E:` are not affected. If the deploy rolled back, send the deploy log: the cause has to be fixed before the next attempt, which will migrate again.
+
+## 5. Adding a host (M2)
+
+The agent and its Docker proxy run as one compose project, `cc-agent`, on the monitored server. They open no port: the agent calls the monitor over HTTPS, and nothing calls into the host. For `acs-prod` (`154.49.142.251`, SSH on 35610), as `deploy` with `sudo`, or as `root` without it.
+
+### 5.1 Once, on GitHub: the images
+
+After patches 0022 and 0023 are merged, the **Images** workflow (Actions tab) builds both images and publishes them to `ghcr.io/administrator-cpu/cc-node-agent` and `ghcr.io/administrator-cpu/cc-docker-proxy`, tagged `latest`, the version (`0.2.0`) and `sha-<commit>`. Its summary shows the digests.
+
+New packages start **private**. Either:
+- make them public (they contain no secret: the code is in this public repository): GitHub → your profile → **Packages** → `cc-node-agent` → **Package settings** → **Change visibility** → Public; the same for `cc-docker-proxy`. Then the server needs no login; or
+- keep them private and log in once on the server with the classic token that has only `read:packages`:
+  ```bash
+  sudo docker login ghcr.io -u administrator-cpu      # paste the token as the password
+  ```
+  (With `sudo`, the login is stored for root, which is who runs the compose commands below.)
+
+### 5.2 On the monitor: the host and its token
+
+Admin → **Hosts** → **Add host** → name `ubuntu-acs` → **Add host and make a token** → **Copy**. The token works once, for 60 minutes; if it runs out, **New token** on that host's row.
+
+### 5.3 On the server: start the agent
+
+```bash
+ssh -p 35610 deploy@154.49.142.251
+
+# The env file, root only (paste the copied lines into it):
+sudo install -d -m 700 -o root -g root /etc/cc-agent
+sudo install -m 600 -o root -g root /dev/null /etc/cc-agent/agent.env
+sudo nano /etc/cc-agent/agent.env
+
+# The compose file, and the docker group's id for the proxy:
+mkdir -p ~/cc-agent && cd ~/cc-agent
+curl -fsSLO https://raw.githubusercontent.com/administrator-cpu/monitor/main/deploy/cc-agent/docker-compose.yml
+echo "DOCKER_GID=$(getent group docker | cut -d: -f3)" > .env
+
+sudo docker compose pull
+sudo docker compose up -d
+```
+
+Compose reads `agent.env` itself, so every `docker compose` command needs `sudo` while that file is root-only. `deploy/cc-agent/agent.env.example` explains each line.
+
+### 5.4 Check (V28)
+
+1. `sudo docker compose ps`: both containers `running`. `sudo docker compose logs cc-node-agent`: `enrolled with the monitor` and `found the agent's own compose project` (`cc-agent`), then nothing more while all is well.
+2. Within a minute, **Hosts** shows `ubuntu-acs` online with agent `0.2.0`. On **Host**, the host picker (top right) → `ubuntu-acs`: CPU, memory, swap, uptime, the `/` disk with read and write rates, and the agent's collectors all `ok`. If the disk shows `—` for read/write, the agent could not read `/proc/1/mountinfo`; usage is still right. Note the disk percentage and compare with `df -h /` on the server: they should match.
+3. **Services** → picker → `ubuntu-acs`: the nine `acs` services (`api`, `caddy`, `cpe-sim`, `dashboard`, `genieacs-cwmp`, `genieacs-fs`, `genieacs-nbi`, `genieacs-ui`, `mongo`) and the agent's own two, with CPU, memory and uptime.
+4. Service down and back:
+   ```bash
+   sudo docker stop acs-cpe-sim-1      # the container name from `sudo docker ps`
+   ```
+   `cpe-sim` shows `stopped` within 10 s; after the rule's duration, **Alerts** has "Service cpe-sim on ubuntu-acs is stopped" (critical, emailed). Its page lists `die` and `stop` under Recent process events.
+   ```bash
+   sudo docker start acs-cpe-sim-1
+   ```
+   It shows `online` within 10 s; the incident resolves after twice the rule's duration (at least a minute).
+5. Host silent: `sudo docker compose stop cc-node-agent`. About 2.5 minutes later **Alerts** has "Host silent" for `ubuntu-acs`; any other `ubuntu-acs` incident is shown under it and not emailed. `sudo docker compose start cc-node-agent`: the host is online again at once; the incident resolves after 4 minutes.
+6. The proxy refuses what the agent does not need (optional):
+   ```bash
+   sudo docker compose exec cc-node-agent node -e "for (const p of ['/containers/json','/info','/containers/acs-api-1/json']) fetch('http://cc-docker-proxy:2375'+p).then(r=>console.log(p, r.status))"
+   ```
+   Expected: `200`, `403`, `403`.
+7. Record the date and the results as V28 in `implementation-plan.md` section 0.3, with the agent's memory from `sudo docker stats --no-stream` (budget: under 150 MB, the proxy under 20 MB).
+
+### 5.5 Later
+
+- **Update:** `cd ~/cc-agent && sudo docker compose pull && sudo docker compose up -d`. To stay on a release, put `CC_TAG=0.2.0` (or `sha-<commit>`) in `~/cc-agent/.env`. The agent never updates itself.
+- **New token** (rotation, or after a revoke): **New token** on the Hosts page, replace `CC_ENROLL_TOKEN` in `/etc/cc-agent/agent.env`, `sudo docker compose up -d --force-recreate cc-node-agent`. The agent enrolls again and the old host token stops working.
+- **Remove:** `sudo docker compose down -v` (also deletes the stored host token), `sudo rm -r /etc/cc-agent`, then **Revoke** on the Hosts page. The host's history stays on the monitor.
+- **Outside probes (M4):** the monitor will check `acs.thediv.in` (`154.49.142.251`) on ports 7547, 443 and 80 from the Windows VPS. Nothing to set up yet.

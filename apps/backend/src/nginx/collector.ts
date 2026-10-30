@@ -162,8 +162,8 @@ export function tlsCollector(d: {
     async run() {
       const hosts = d.hosts();
       const upsert = d.db.prepare(
-        `INSERT INTO tls_certs (host, not_after, issuer, checked_at, last_error) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(host) DO UPDATE SET not_after = COALESCE(excluded.not_after, tls_certs.not_after),
+        `INSERT INTO tls_certs (host_id, host, not_after, issuer, checked_at, last_error) VALUES (1, ?, ?, ?, ?, ?)
+         ON CONFLICT(host_id, host) DO UPDATE SET not_after = COALESCE(excluded.not_after, tls_certs.not_after),
            issuer = COALESCE(excluded.issuer, tls_certs.issuer), checked_at = excluded.checked_at,
            last_error = excluded.last_error`,
       );

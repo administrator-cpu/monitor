@@ -62,6 +62,11 @@ const env = {
   INGEST_TOKEN: 'e2e-ingest-token-0123456789abcdef',
   DEMO_AGENT_SERVICE: 'chatty',
   DEMO_AGENT_INTERVAL_MS: '1500',
+  // Phase 11 M2: the demo's second host (ubuntu-acs, reported by the real node agent). cpe-sim
+  // stays down from the start, so the host switcher test sees one stopped container.
+  DEMO_HOST_NAME: 'ubuntu-acs',
+  DEMO_FLAP_S: '0',
+  DEMO_CPE_DOWN: '1',
 };
 const pm2Bin = path.join(backend, 'node_modules/pm2/bin/pm2');
 const pm2 = (...args) => spawnSync(process.execPath, [pm2Bin, ...args], { env, stdio: 'inherit' });

@@ -6,6 +6,7 @@ import { toIncidentDto } from './dto';
 import {
   createEvaluators,
   fingerprintOf,
+  PER_HOST_RULES,
   REQUIRED_COLLECTORS,
   type AgentHostView,
   type EvalContext,
@@ -127,11 +128,17 @@ export class AlertEngine {
         for (const inc of open) this.observe(rule, inc.fingerprint, inactive(inc), inc, now);
         continue;
       }
-      if (REQUIRED_COLLECTORS[rule.key]?.some((n) => stale.has(n))) continue; // stale data is no evidence
+      // Stale data is no evidence. A per-host rule still judges the agent hosts when only this
+      // server's collectors are stale; its open incidents on host 1 stay as they are.
+      const localStale = REQUIRED_COLLECTORS[rule.key]?.some((n) => stale.has(n)) ?? false;
+      const perHost = PER_HOST_RULES.has(rule.key);
+      if (localStale && !perHost) continue;
+      const judged = new Set<number>();
+      const rc: EvalContext = perHost ? { ...ec, localStale, judged } : ec;
 
       let obs: Observation[] | null;
       try {
-        obs = ev(rule, ec);
+        obs = ev(rule, rc);
       } catch (err) {
         this.d.log.warn({ rule: rule.key, err: String(err) }, 'rule evaluation failed');
         continue;
@@ -144,7 +151,12 @@ export class AlertEngine {
         seen.add(fp);
         this.observe(rule, fp, o, open.find((i) => i.fingerprint === fp), now);
       }
-      for (const inc of open) if (!seen.has(inc.fingerprint)) this.observe(rule, inc.fingerprint, inactive(inc), inc, now);
+      for (const inc of open) {
+        if (seen.has(inc.fingerprint)) continue;
+        // Not observed: gone (a removed volume or service) if its host was judged, unknown if not.
+        if (perHost && !judged.has(inc.host_id)) continue;
+        this.observe(rule, inc.fingerprint, inactive(inc), inc, now);
+      }
     }
 
     this.syncSuppression();

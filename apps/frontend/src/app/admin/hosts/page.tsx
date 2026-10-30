@@ -27,6 +27,8 @@ function TokenPanel({ t, onClose }: { t: EnrollTokenResponse; onClose: () => voi
     `CC_HOST_NAME=${t.host.name}`,
     `CC_ENROLL_TOKEN=${t.enrollToken}`,
     'CC_PROJECTS=acs',
+    'CC_DISKS=/',
+    'CC_ACTIONS=off',
   ].join('\n');
   return (
     <section
@@ -46,8 +48,9 @@ function TokenPanel({ t, onClose }: { t: EnrollTokenResponse; onClose: () => voi
       </pre>
       <p className="muted">
         The agent exchanges it for its own host token on first start and keeps that on its state
-        volume. The agent image and its compose file arrive with phase 11 step M2 (runbook
-        &ldquo;Adding a host&rdquo;).
+        volume. Then start the agent with the compose file in <code>deploy/cc-agent</code> (runbook
+        &ldquo;Adding a host&rdquo; in <code>docs/runbook-hosts.md</code>); the host shows as online
+        within a minute.
       </p>
       <div className="row">
         <button
@@ -66,8 +69,14 @@ function TokenPanel({ t, onClose }: { t: EnrollTokenResponse; onClose: () => voi
   );
 }
 
-function CreateHost({ onCreated }: { onCreated: (t: EnrollTokenResponse) => void }) {
-  const [open, setOpen] = useState(false);
+/** The add form. It sits below the page header, so opening it does not stretch the header row. */
+function CreateHost({
+  onCreated,
+  onClose,
+}: {
+  onCreated: (t: EnrollTokenResponse) => void;
+  onClose: () => void;
+}) {
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +93,6 @@ function CreateHost({ onCreated }: { onCreated: (t: EnrollTokenResponse) => void
       });
       setName('');
       setNotes('');
-      setOpen(false);
       onCreated(t);
     } catch (err) {
       setError(errorMessage(err));
@@ -93,13 +101,6 @@ function CreateHost({ onCreated }: { onCreated: (t: EnrollTokenResponse) => void
     }
   }
 
-  if (!open) {
-    return (
-      <button className="btn primary" onClick={() => setOpen(true)}>
-        Add host
-      </button>
-    );
-  }
   return (
     <form className="card" onSubmit={submit} aria-label="Add host" style={{ marginBottom: 14 }}>
       <h2>Add a Linux host</h2>
@@ -140,7 +141,7 @@ function CreateHost({ onCreated }: { onCreated: (t: EnrollTokenResponse) => void
         <button className="btn primary" disabled={busy}>
           {busy ? 'Adding…' : 'Add host and make a token'}
         </button>
-        <button type="button" className="btn" onClick={() => setOpen(false)}>
+        <button type="button" className="btn" onClick={onClose}>
           Cancel
         </button>
       </div>
@@ -336,19 +337,27 @@ function Hosts() {
   });
   const [token, setToken] = useState<EnrollTokenResponse | null>(null);
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [adding, setAdding] = useState(false);
   const say = (text: string, isError = false) => setMsg({ text, error: isError });
 
   return (
     <>
       <PageHead title="Hosts">
+        <button className="btn primary" onClick={() => setAdding(true)} disabled={adding}>
+          Add host
+        </button>
+      </PageHead>
+      {adding && (
         <CreateHost
+          onClose={() => setAdding(false)}
           onCreated={(t) => {
+            setAdding(false);
             setToken(t);
             say(`Host added: ${t.host.name}`);
             void mutate();
           }}
         />
-      </PageHead>
+      )}
       <div aria-live="polite" style={{ minHeight: 22, marginBottom: 8 }}>
         {msg && (
           <span className={msg.error ? 'error' : 'notice'} role={msg.error ? 'alert' : 'status'}>

@@ -46,6 +46,8 @@ type HubCtx = Pick<
 > & {
   /** Set by createContext right after the hub; optional so tests can build a hub without it. */
   health?: AppContext['health'];
+  /** Optional for the same reason; without it the live message lists no hosts. */
+  hosts?: AppContext['hosts'];
 };
 
 /**
@@ -108,6 +110,9 @@ export class LiveHub {
       logs: this.ctx.logs.status(),
       openIncidents: this.ctx.alerts.openCount(),
       monitor: this.ctx.health?.snapshot(),
+      hosts: (this.ctx.hosts?.list() ?? [])
+        .filter((h) => h.revoked_at === null)
+        .map((h) => ({ id: h.id, name: h.name, kind: h.kind, os: h.os, status: this.ctx.hosts!.status(h) })),
     };
   }
 

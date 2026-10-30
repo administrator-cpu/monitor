@@ -41,7 +41,7 @@ v2 used "Delivered" for Parts 0, A, B and C. They are in `main` since 2026-10-09
 | Part B | Resend delivery counts and bounce alert | Built (`e31724b`) | `email.test.ts` |
 | Part C | Restart, stop, start of PM2 services with `can_operate` | Built (`e31724b`) | `actions.test.ts` |
 | Audit fixes (H1 to H9) | Gaps found in the v3 review | Merged (PRs #3 to #8); server steps open | `implementation-plan.md` phase 10.5 |
-| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 merged (PR #11, patch 0016), M2 to M6 planned | Section 16; `hosts.test.ts` |
+| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 merged (PR #11, patch 0016); M2 code done (patches 0021 to 0023), on the server after V28; M3 to M6 planned | Section 16; `hosts.test.ts`, `containers.test.ts`, `apps/node-agent/test`, `apps/docker-proxy/test` |
 | TOTP, alert channels other than email | | Not started | Section 11 |
 
 Test run on `main` for v3: 364 backend, 42 watchdog and 15 agent tests pass; the typecheck of all packages is clean.
@@ -128,8 +128,8 @@ Admins can always operate. Operator permission is granted per user by an admin.
 | Watchdog | Render, sole service in its workspace | Checks `/health` of the monitor (and, planned, of the Ubuntu API); emails on outage | Built (one target) |
 | Scheduler | cron-job.org | Pings the watchdog every 5 minutes | Built |
 | Deploy runner | Self-hosted GitHub runner on the Windows VPS | Deploys `monitor-api` after CI on `main` | Built |
-| Node agent (`cc-node-agent`) | Container on each remote host | Collects host, container, log, database, gateway, backup and security data; runs approved actions | Planned |
-| Docker proxy (`cc-docker-proxy`) | Container next to the agent | The only path to the Docker API, limited to an allowlist | Planned |
+| Node agent (`cc-node-agent`) | Container on each remote host | Collects host, container, log, database, gateway, backup and security data; runs approved actions | Host and containers built (M2); the rest M3 to M5 |
+| Docker proxy (`cc-docker-proxy`) | Container next to the agent | The only path to the Docker API, limited to an allowlist | Built (M2) |
 
 ### 3.1 Domains and public routes
 
@@ -248,7 +248,7 @@ SQLite is separate from every production MongoDB.
 - A nightly `VACUUM INTO` copy at 02:30 to `E:\monitor-backups` (newest 14 kept), checked before it counts; a failure raises "Collector stale" for `backup`.
 - Pre-deploy backups in `E:\monitor-backups\deploy` (last 10).
 - A second copy off the server, encrypted, by `scripts/backup-offsite.ps1` in a scheduled task (owner's step).
-- One restore tested and recorded (V19, owner's step). Steps in `docs/runbook-backups.md`.
+- One restore tested and recorded (V19, owner's step; the local part passed 2026-10-30, the offsite part waits for the rclone task). Steps in `docs/runbook-backups.md`.
 
 ---
 
@@ -316,8 +316,8 @@ Known limitation: if Render, cron-job.org or Resend fail during an outage, no em
 | Protected `main` branch (no direct pushes) | Planned (H1) |
 | Off-drive and offsite database backups, tested restore | Built (H7): nightly and pre-deploy on `E:`; offsite task and restore test are owner steps |
 | Nginx `limit_req` on `/webhooks/` and `/api/v1/logs/search` (H8), `/agent/` (M1) | H8 configuration ready in `docs/runbook-nginx.md`, to apply on the server; `/agent/` ready there, to apply with M1 |
-| Agent ingest with per-host hashed tokens, size and rate limits, version check | Built (M1, merged in PR #11; V25 passed, V26 open) |
-| Docker access only through an allowlisting proxy; no exec, archive, export, inspect or create | Planned (M2) |
+| Agent ingest with per-host hashed tokens, size and rate limits, version check | Built (M1, merged in PR #11; V25 and V26 passed) |
+| Docker access only through an allowlisting proxy; no exec, archive, export, inspect or create | Built (M2); every refused path tested against the real HAProxy in CI |
 | Remote actions pulled by the agent, expiring after 60 s, refused for the agent's own containers | Planned (M5) |
 | TOTP per action or Cloudflare Access | Recommended before M5 is switched on (O3) |
 

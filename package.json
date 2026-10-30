@@ -11,16 +11,16 @@
     "build:shared": "pnpm --filter @cc/shared build",
     "dev:backend": "pnpm --filter @cc/shared build && pnpm --filter @cc/backend dev",
     "dev:frontend": "pnpm --filter @cc/shared build && pnpm --filter @cc/frontend dev",
-    "build": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/backend build && pnpm --filter @cc/frontend build && pnpm --filter command-center-watchdog build",
+    "build": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/backend build && pnpm --filter @cc/frontend build && pnpm --filter command-center-watchdog build && pnpm --filter @cc/node-agent build",
     "typecheck": "pnpm --filter @cc/shared build && pnpm -r typecheck",
-    "test": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/agent test && pnpm --filter @cc/backend test && pnpm --filter command-center-watchdog test",
+    "test": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/agent test && pnpm --filter @cc/backend test && pnpm --filter command-center-watchdog test && pnpm --filter @cc/node-agent test && pnpm --filter @cc/docker-proxy test",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,css,yml}\"",
     "smoke:watchdog": "pnpm --filter command-center-watchdog smoke",
     "pm2:check": "pnpm --filter @cc/backend pm2:check",
     "mongo:check": "pnpm --filter @cc/backend mongo:check",
     "size:check": "pnpm --filter @cc/backend size:check",
     "agent:bench": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent bench",
-    "demo": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/backend demo"
+    "demo": "pnpm --filter @cc/shared build && pnpm --filter @cc/agent build && pnpm --filter @cc/node-agent build && pnpm --filter @cc/backend demo"
   },
   "devDependencies": {
     "prettier": "^3.9.9"

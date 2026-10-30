@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import useSWR from 'swr';
 import type { ServicesResponse } from '@cc/shared';
 import { GitBadgeTag } from '@/components/GitCard';
+import { HostSwitcher, useHostId } from '@/components/HostSwitcher';
 import { processLabel, StatusDot } from '@/components/ServiceStatus';
 import { PageHead, Shell } from '@/components/Shell';
 import { bytes, duration, pct, timeAgo } from '@/lib/format';
@@ -12,18 +13,24 @@ import { fetcher } from '@/lib/api';
 import { useIsFresh, useLive } from '@/lib/live';
 
 function Services() {
+  const hostId = useHostId();
   const [archived, setArchived] = useState(false);
-  const { data, error } = useSWR<ServicesResponse>(`/services${archived ? '?archived=1' : ''}`, fetcher, {
+  const query = [hostId === 1 ? null : `host=${hostId}`, archived ? 'archived=1' : null].filter(Boolean).join('&');
+  const { data, error } = useSWR<ServicesResponse>(`/services${query ? `?${query}` : ''}`, fetcher, {
     refreshInterval: 10_000,
   });
   const { live } = useLive();
   const fresh = useIsFresh();
-  // The live message is newer than the REST response; prefer it for the process numbers.
-  const liveBy = new Map((live?.services ?? []).map((s) => [s.process.serviceId, s.process]));
+  // The live message is newer than the REST response; prefer it for the process numbers. It carries
+  // this server's services only; an agent host's come from the REST response (one report per 10 s).
+  const liveBy = new Map(hostId === 1 ? (live?.services ?? []).map((s) => [s.process.serviceId, s.process]) : []);
+  const hostName = hostId === 1 ? null : (live?.hosts?.find((h) => h.id === hostId)?.name ?? `Host ${hostId}`);
 
   return (
     <>
-      <PageHead title="Services" />
+      <PageHead title={hostName ? `Services · ${hostName}` : 'Services'}>
+        <HostSwitcher hostId={hostId} />
+      </PageHead>
       {error && (
         <div className="banner crit" role="alert">
           Could not load services: {error.message}
@@ -61,13 +68,16 @@ function Services() {
                   <tr key={s.id}>
                     <td>
                       <Link href={`/services/${s.id}`}>{s.name}</Link>
-                      {s.name !== s.pm2Name && <span className="muted"> ({s.pm2Name})</span>}
+                      {s.kind === 'container'
+                        ? <span className="muted"> ({s.sourceKey})</span>
+                        : s.name !== s.pm2Name && <span className="muted"> ({s.pm2Name})</span>}
                       {s.isArchived && <span className="tag" style={{ marginLeft: 8 }}>archived</span>}
                       {s.git && <span style={{ marginLeft: 8 }}><GitBadgeTag git={s.git} /></span>}
                       {!s.isArchived && s.stale && <span className="tag warn" style={{ marginLeft: 8 }}>not seen lately</span>}
                     </td>
                     <td>
                       <StatusDot p={p} /> {processLabel(p)}
+                      {p?.health === 'unhealthy' && <span className="tag crit" style={{ marginLeft: 8 }}>unhealthy</span>}
                     </td>
                     <td className="num">{p && p.instances > 0 ? pct(p.cpuPct) : '—'}</td>
                     <td className="num">{p && p.instances > 0 ? bytes(p.memBytes, 0) : '—'}</td>
@@ -81,7 +91,11 @@ function Services() {
           </table>
         </div>
         {data && data.services.length === 0 && (
-          <div className="empty">No services yet. PM2 processes appear here automatically.</div>
+          <div className="empty">
+            {hostId === 1
+              ? 'No services yet. PM2 processes appear here automatically.'
+              : 'No services yet. The containers of the watched compose projects appear here with the agent’s first report.'}
+          </div>
         )}
       </section>
     </>
@@ -91,7 +105,10 @@ function Services() {
 export default function Page() {
   return (
     <Shell>
-      <Services />
+      {/* useSearchParams (the host switcher) needs a boundary for the static build. */}
+      <Suspense>
+        <Services />
+      </Suspense>
     </Shell>
   );
 }

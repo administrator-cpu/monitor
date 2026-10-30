@@ -13,6 +13,7 @@ import { EmailStats } from './email/stats';
 import { GitHubClient } from './github/client';
 import { readLocalCommit, type LocalRead } from './github/local';
 import { GitMonitor } from './github/monitor';
+import { ContainerTracker } from './hosts/containers';
 import { HostsRepo } from './hosts/repo';
 import { LiveHub } from './hub';
 import { LogSystem, type LogSystemOptions } from './logs';
@@ -50,6 +51,8 @@ export interface AppContext {
   services: ServicesRepo;
   /** Host 1 (this server) and the agent hosts (phase 11). */
   hosts: HostsRepo;
+  /** Agent hosts' container lists and events turned into services (phase 11, M2). */
+  containers: ContainerTracker;
   procEvents: ProcessEvents;
   /** Null when PM2 monitoring is switched off (PM2_ENABLED=false). */
   pm2: Pm2Link | null;
@@ -162,6 +165,34 @@ export function createContext(opts: {
     now,
   });
 
+  const containers = new ContainerTracker({
+    services,
+    state,
+    events: procEvents,
+    now,
+    autoArchive: {
+      // The same setting as for PM2: one rule for "this service is gone".
+      minutes: () => settings.get('pm2.auto_archive_minutes'),
+      archive: (svc) => {
+        services.update(svc.id, { isArchived: true }, new Set());
+        alerts.onServiceArchived(svc.id);
+        audit.write({
+          event: 'service_updated',
+          username: 'system',
+          detail: {
+            serviceId: svc.id,
+            hostId: svc.host_id,
+            sourceKey: svc.source_key,
+            changed: ['isArchived'],
+            auto: true,
+            reason: 'not listed by the agent',
+          },
+        });
+        opts.log.info({ host: svc.host_id, service: svc.source_key }, 'service archived: the agent no longer lists it');
+      },
+    },
+  });
+
   const actions = new ServiceActions({
     link: pm2,
     alertRepo,
@@ -188,6 +219,7 @@ export function createContext(opts: {
     searcher: new LogSearcher({ ...ov.searchOptions }),
     services,
     hosts,
+    containers,
     procEvents,
     pm2,
     persistence,

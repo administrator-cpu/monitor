@@ -22,6 +22,10 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@cc/shared'],
+  // There is no /admin page; the menu's first admin entry is Users.
+  async redirects() {
+    return [{ source: '/admin', destination: '/admin/users', permanent: false }];
+  },
   async headers() {
     const common = [
       { key: 'X-Content-Type-Options', value: 'nosniff' },

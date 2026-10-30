@@ -10,7 +10,7 @@ import type {
   ProcessStatus,
   ServiceSeries,
 } from '@cc/shared';
-import { LOCAL_HOST_ID, type AgentContainer } from '@cc/shared';
+import { LOCAL_HOST_ID, type AgentContainer, type AgentMetrics } from '@cc/shared';
 import type { NginxWindow } from './nginx/aggregate';
 import type { StubSample } from './nginx/stub';
 import { AppStore } from './agent/store';
@@ -151,8 +151,10 @@ export class HostSlice {
   private disks: { at: number; list: DiskState[] } | null = null;
   private diskIo: { at: number; byVolume: Map<string, DiskIo> } | null = null;
   private readonly hostSeries = new RingBuffer<HostSample>(HOST_SERIES_CAPACITY);
-  /** Latest container list reported by an agent host (turned into services from M2). */
+  /** Latest container list reported by an agent host; `ContainerTracker` turns it into services. */
   private containers: { at: number; list: AgentContainer[] } | null = null;
+  /** The `agent` section of an agent host's latest report that carried one. */
+  private agentInfo: { at: number; info: NonNullable<AgentMetrics['agent']> } | null = null;
 
   /** Disk I/O older than this is reported as "not measured" rather than shown as current. */
   static readonly DISK_IO_FRESH_MS = 40_000;
@@ -241,6 +243,14 @@ export class HostSlice {
 
   getContainersAt(): { at: number; list: AgentContainer[] } | null {
     return this.containers;
+  }
+
+  setAgentInfo(info: NonNullable<AgentMetrics['agent']>, at: number): void {
+    this.agentInfo = { at, info };
+  }
+
+  getAgentInfo(): { at: number; info: NonNullable<AgentMetrics['agent']> } | null {
+    return this.agentInfo;
   }
 
   /** Series in seconds-since-epoch, the layout uPlot consumes directly. */

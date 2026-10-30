@@ -48,13 +48,13 @@ describe('migration-check.mjs (node:sqlite, nothing installed)', () => {
     return file;
   }
 
-  it('applies 010 to a 009 copy, keeps every row and says OK; a second run has nothing to do', () => {
+  it('applies 010 and 011 to a 009 copy, keeps every row and says OK; a second run has nothing to do', () => {
     const file = copyAt009();
     const r = check([file]);
     expect(r.err).not.toMatch(/ExperimentalWarning/);
     expect(r.code).toBe(0);
     expect(r.out).toMatch(/migrations applied: 1, 2, 3, 4, 5, 6, 7, 8, 9\n/);
-    expect(r.out).toMatch(/Applied 010_hosts\.sql in \d+\.\d\d s/);
+    expect(r.out).toMatch(/Applied 010_hosts\.sql, 011_tls_certs_host\.sql in \d+\.\d\d s/);
     expect(r.out).toMatch(/Services: 3 \(unchanged ids and keys: yes\)/);
     expect(r.out).toMatch(/OK: every row kept/);
 
@@ -69,12 +69,45 @@ describe('migration-check.mjs (node:sqlite, nothing installed)', () => {
       { name: 'api', source_key: 'api', host_id: 1 },
       { name: 'web', source_key: 'web', host_id: 1 },
     ]);
-    expect(db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get()).toEqual({ v: 10 });
+    expect(db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get()).toEqual({ v: 11 });
     db.close();
 
     const again = check([file]);
     expect(again.code).toBe(0);
     expect(again.out).toMatch(/Nothing to apply/);
+  });
+
+  // Production is at 010 since PR #11: this is the check the owner runs before merging M2.
+  it('applies 011 to a 010 copy and keeps every certificate row as host 1', () => {
+    const dir = tmp();
+    const upTo010 = path.join(dir, 'migrations-010');
+    fs.mkdirSync(upTo010);
+    for (const f of fs.readdirSync(MIGRATIONS_DIR).filter((n) => /^0(0\d|10)_.+\.sql$/.test(n))) {
+      fs.copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(upTo010, f));
+    }
+    const file = path.join(dir, 'monitor.db');
+    const db0 = new Database(file);
+    db0.pragma('journal_mode = WAL');
+    migrate(db0, upTo010);
+    const ins = db0.prepare('INSERT INTO tls_certs (host, not_after, issuer, checked_at, last_error) VALUES (?, ?, ?, ?, ?)');
+    ins.run('monitor-api.thediv.in', 1_900_000_000_000, 'R11', 5, null);
+    ins.run('old.thediv.in', null, null, 6, 'timeout');
+    db0.close();
+
+    const r = check([file]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/migrations applied: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10\n/);
+    expect(r.out).toMatch(/Applied 011_tls_certs_host\.sql in \d+\.\d\d s/);
+    expect(r.out).toMatch(/OK: every row kept/);
+
+    const db = new Database(file, { readonly: true });
+    expect(db.prepare('SELECT host_id, host, not_after, issuer, checked_at, last_error FROM tls_certs ORDER BY host').all()).toEqual([
+      { host_id: 1, host: 'monitor-api.thediv.in', not_after: 1_900_000_000_000, issuer: 'R11', checked_at: 5, last_error: null },
+      { host_id: 1, host: 'old.thediv.in', not_after: null, issuer: null, checked_at: 6, last_error: 'timeout' },
+    ]);
+    const pk = (db.prepare("SELECT name, pk FROM pragma_table_info('tls_certs') WHERE pk > 0 ORDER BY pk").all() as { name: string }[]).map((x) => x.name);
+    expect(pk).toEqual(['host_id', 'host']);
+    db.close();
   });
 
   it('stops with exit 1 and leaves the copy as it was when a migration throws', () => {
@@ -84,18 +117,18 @@ describe('migration-check.mjs (node:sqlite, nothing installed)', () => {
     for (const f of fs.readdirSync(MIGRATIONS_DIR))
       fs.copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(bad, f));
     fs.writeFileSync(
-      path.join(bad, '011_broken.sql'),
+      path.join(bad, '012_broken.sql'),
       'CREATE TABLE t (x);\nSELECT * FROM no_such_table;\n',
     );
 
     const r = check([file, '--migrations', bad]);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/Applied|Copy:/);
-    expect(r.err).toMatch(/011_broken\.sql threw: .*no_such_table/);
+    expect(r.err).toMatch(/012_broken\.sql threw: .*no_such_table/);
 
     const db = new Database(file, { readonly: true });
-    // 010 committed before 011 failed, exactly as on a backend start; 011 left nothing behind.
-    expect(db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get()).toEqual({ v: 10 });
+    // 010 and 011 committed before 012 failed, exactly as on a backend start; 012 left nothing behind.
+    expect(db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get()).toEqual({ v: 11 });
     expect(db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 't'").get()).toEqual({
       n: 0,
     });

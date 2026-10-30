@@ -396,7 +396,7 @@ Secrets (`CC_ENROLL_TOKEN`, `CC_MONGO_URI`, `CC_RELAY_TOKEN`) live in an env fil
 
 `deploy.ps1`: preflight (tools, `.env`, the service's NSSM folder or the PM2 process's folder is the deploy folder) → `VACUUM INTO` backup to `E:\monitor-backups\deploy` (last 10 kept) → snapshot to `C:\Apps\command-center-deploy.prev` → robocopy → `pnpm install --frozen-lockfile` → build → stop and start `monitor-api` (processes ended after 30 s in `StopPending`; `pm2 restart` before the switch) → `/health` on port 4111 and a 10 s stability check (the PID of NSSM's `node.exe`, or PM2's restart count, must not change) → `.deploy-sha`. On failure: code rollback; database migrations are not undone.
 
-**H7 (code done).** The backend's `backup` job (`src/backup.ts`, every 10 min) writes `BACKUP_DIR\monitor-YYYYMMDD.db` once a day after 02:30 server time: `VACUUM INTO` a `.partial` file, `PRAGMA quick_check` on the copy, rename, keep the newest `backup.keep` (14). A failure throws, is retried on the next run and after three makes the job stale (`monitor.collector_stale`, target `backup`); before 02:30 a missing file for yesterday is also a failure. `VACUUM INTO` is synchronous and holds the database for the copy (seconds at the projected size). Offsite: `scripts/backup-offsite.ps1` copies the newest file to an rclone (crypt) remote and prunes remote copies older than 30 days, run by a scheduled task the monitor does not watch. Restore test on a copy: `scripts/check-backup.ps1`. Runbook: `runbook-backups.md`. [Verify] offsite task and V19.
+**H7 (code done).** The backend's `backup` job (`src/backup.ts`, every 10 min) writes `BACKUP_DIR\monitor-YYYYMMDD.db` once a day after 02:30 server time: `VACUUM INTO` a `.partial` file, `PRAGMA quick_check` on the copy, rename, keep the newest `backup.keep` (14). A failure throws, is retried on the next run and after three makes the job stale (`monitor.collector_stale`, target `backup`); before 02:30 a missing file for yesterday is also a failure. `VACUUM INTO` is synchronous and holds the database for the copy (seconds at the projected size). Offsite: `scripts/backup-offsite.ps1` copies the newest file to an rclone (crypt) remote and prunes remote copies older than 30 days, run by a scheduled task the monitor does not watch. Restore test on a copy: `scripts/check-backup.ps1`. Runbook: `runbook-backups.md`. Nightly files written since 2026-10-29; V19's local part passed 2026-10-30. [Verify] offsite task and the offsite half of V19.
 
 **[Gap H1]** No branch protection: `e31724b` was pushed directly to `main` and deployed without a pull request. Required: protect `main` (pull request, passing CI).
 
@@ -497,6 +497,8 @@ volumes:
 ```
 
 - The agent is never on the host network and never mounts the Docker socket.
+
+**As built (M2, patch 0023):** `deploy/cc-agent/docker-compose.yml`. Differences from the sketch above, until M4 adds what needs them: the agent reaches the monitor through its own bridge network `cc-egress` (the `acs` network joins in M4, for MongoDB and the relay); no `adm` group, `/var/log`, Caddy log or backup mounts (M4); the proxy keeps the image's `haproxy` user and gets the host's docker group through `group_add: ${DOCKER_GID}` (from `.env` next to the compose file), with `read_only`, no capabilities and `ALLOW_ACTIONS=0`; memory limits 64 MB (proxy) and 200 MB (agent). The images are `ghcr.io/administrator-cpu/cc-node-agent` and `cc-docker-proxy`, tagged `latest`, the package version and `sha-<commit>` by `.github/workflows/images.yml`, which also smoke-tests them on pull requests. Compose reads `env_file` on the client, so with the root-only `/etc/cc-agent/agent.env` the compose commands run with `sudo`.
 - `cc-internal` is internal, so the proxy cannot reach the internet and only the agent can reach the proxy.
 - The relay listens on the agent's address in the `acs` network (port 4002). Nothing is published on the host.
 
@@ -530,7 +532,7 @@ Public, outside `/api/v1`, on the existing Fastify server, in its own scope: no 
 
 Audit: `host_created`, `host_updated`, `host_enrolled`, `host_token_rotated`, `host_revoked`, `agent_version_rejected`; remote actions add `service_action_requested` (14.7).
 
-**As built (M1).** `apps/backend/src/hosts/ingest.ts` and `src/hosts/repo.ts`; Hosts admin API under `/api/v1/hosts` (`src/routes/hosts.ts`). The checks run in this order: `Origin` (403), declared `Content-Length` above the endpoint limit (413), token (401), `X-Agent-Version` (400 when missing, 426 below `hosts.min_agent_version`), rate (429); then the body is read with the limit applied to the compressed bytes and again while inflating. Tokens are 32 random bytes in base64url; lookups use the SHA-256 hash, kept in memory. A host's `last_seen_at` is exact in memory and written at most once a minute. Metrics are stored at arrival time (backend-schema.md 13.6). Nginx removes the `Cookie` header on `/agent/` (`runbook-nginx.md`).
+**As built (M1).** `apps/backend/src/hosts/ingest.ts` and `src/hosts/repo.ts`; Hosts admin API under `/api/v1/hosts` (`src/routes/hosts.ts`). The checks run in this order: `Origin` (403), declared `Content-Length` above the endpoint limit (413), token (401), `X-Agent-Version` (400 when missing, 426 below `hosts.min_agent_version`), rate (429); then the body is read with the limit applied to the compressed bytes and again while inflating. Tokens are 32 random bytes in base64url; lookups use the SHA-256 hash, kept in memory. A host's `last_seen_at` is exact in memory and written at most once a minute. Metrics are stored at arrival time (backend-schema.md 13.7). Nginx removes the `Cookie` header on `/agent/` (`runbook-nginx.md`).
 
 ### 14.4 Docker access through `cc-docker-proxy`
 
@@ -548,6 +550,8 @@ A small HAProxy image built in this repository, with a fixed allowlist. Anything
 Not allowed, among others: inspect (`/containers/{id}/json`, which returns every environment variable), `archive`, `export`, `exec`, `attach`, `create`, `kill`, `update`, any `DELETE`, images, volumes, networks, build, swarm, secrets. Inspect is not needed: the list gives labels and health, and restarts are counted from events.
 
 Tests in CI start the proxy against a fake Docker socket and assert 403 on every forbidden path.
+
+**As built (M2, patch 0022).** `apps/docker-proxy`: `haproxy.cfg` on `haproxy:2.8-alpine`, the image's own `haproxy` user. Each path is matched in full with an optional `/v1.NN` prefix; any path containing `..`, `%` or `//` is refused first, so no encoding can turn an allowed prefix into another endpoint. Only refusals are logged. `ALLOW_ACTIONS` defaults to `0` in the image; M5 sets it to `1`. `apps/docker-proxy/test/proxy.test.mjs` runs the real HAProxy (CI installs `haproxy` from Ubuntu, the same 2.8 series) against a fake Docker socket: the reads pass, 52 forbidden requests (inspect, archive, export, exec, attach, create, kill, update, pause, rename, wait, prune, DELETE, images, volumes, networks, build, swarm, secrets, configs, plugins, session, services, nodes, tasks, info, system, wrong methods, `..`, `%2e%2e`, `%2F`, `//`, a doubled version prefix) get 403 without reaching Docker, and the three actions pass only with `ALLOW_ACTIONS=1`.
 
 ### 14.5 Collection on the Ubuntu host
 
@@ -570,6 +574,8 @@ Tests in CI start the proxy against a fake Docker socket and assert 403 on every
 
 Client addresses read from `auth.log` and `fail2ban.log` are never stored or sent; only counts.
 
+**As built (M2, patch 0022).** `apps/node-agent` (`@cc/node-agent` 0.2.0), Node 22, no runtime dependencies (only types from `@cc/shared`). One report per `CC_INTERVAL_S` (10 s): CPU, per-core CPU, network and disk I/O are averages over the interval from `/proc` counters (not one instant); memory used is `MemTotal - MemAvailable`; disk usage by `statfs` under `/host`, with total = used + available to users, so the share matches `df`; disk I/O from `/proc/diskstats` through the mount's device in `/proc/1/mountinfo`. Containers: `GET /containers/json?all=1` filtered on the compose project label, one-shot stats for running containers (4 at a time), grouped by `<project>/<service>` with the worst state and health of the replicas, the youngest uptime (from events, else the "Up …" text) and summed CPU and memory; the agent's own project is found from its own container (hostname = container id) or `CC_OWN_PROJECT`, and its containers carry `own: true`. Events: the Docker event stream, reconnecting with up to 30 s between tries; `die`, `start`, `stop`, `restart`, `oom` and `health_status` go to `/agent/v1/events` within 0.5 s with only the exit code or health status; a start after a die of the same container counts one restart. The host token is in `/var/lib/cc-agent/token` (mode 600); the enrollment token is never written, only a hash marking it used, so a restart does not enroll again and a new token in the env file does. Answers: 401 → wait 10 minutes; 426 → an hour; 429 → `Retry-After`; unreachable → 10, 20, 40 s, then every 60 s; a refused report (400, 413) is logged once a minute. Reports that could not be sent are dropped (they are snapshots); up to 1000 events wait.
+
 **Service identity.** A container belongs to service `<compose service>` in project `<compose project>`; its key is `<project>/<service>` (e.g. `acs/genieacs-cwmp`), its display name the compose service. Scaled replicas are instances of one service, like PM2 cluster instances. Discovery and auto-archive follow 4.1 using the container list; a stopped container is still listed. Containers without compose labels are ignored.
 
 **Logs.** 200 lines per second per container by default (`agent.log_lines_per_s`), with dropped counts; containers excluded in the UI are not followed. Lines longer than 64 KB are cut. While the monitor is unreachable, batches go to a 50 MB ring on the state volume; the oldest are dropped and counted when it is full.
@@ -581,7 +587,7 @@ Client addresses read from `auth.log` and `fail2ban.log` are never stored or sen
 - [Built, M1] `ServicesRepo` keys services by `(host_id, source_key)` instead of PM2 name; `source_key` is the PM2 name on host 1 and `<project>/<service>` on agent hosts. `list()` and `getByPm2Name()` mean host 1 unless another host or `'all'` is asked for, so the PM2, Nginx, GitHub and log-folder code is unchanged.
 - [Built, M1] The state store holds a `HostSlice` per host (`Map<hostId, HostSlice>`); host 1's slice is fed by the local collectors, an agent host's by its metrics. Processes are tagged with their host; `setProcesses` replaces one host's list only. Nginx, Mongo, TLS and Event Log state stay host 1 until M4.
 - Log folders: host 1 unchanged; other hosts under `LOG_ROOT\@<host name>\<project>.<service>\`.
-- `live` snapshots carry a host list plus the detail of the subscribed host, staying under 50 KB.
+- `live` snapshots carry a host list plus the detail of the subscribed host, staying under 50 KB. [Built, M2: the host list (`hosts`, every host not revoked, with its status) feeds the switcher; the detail is still host 1's. The Host and Services pages read an agent host over REST every 10 s (`/host?host=<id>`, `/services?host=<id>`), which matches its 10 s reports. Subscribing to another host's detail comes with M6.]
 - [Built, M1] Rollup groups by host where the table has `host_id`; persistence writes `metrics_host` and `metrics_disk` per host; `GET /history/host?host=<id>` reads one host (host 1 by default).
 
 ### 14.7 Remote actions
@@ -607,6 +613,7 @@ Rules:
 - `alert_incidents.host_id` is filled for filtering and grouping.
 - Service rules (`pm2.*`) apply to containers: down = not running; crash loop = restarts counted from events in 10 minutes; memory from stats. The category name stays `pm2`.
 - Host, Mongo and certificate rules apply per host; `nginx.5xx_rate` applies to Caddy traffic per service.
+- [Built, M2] The host rules and the three service rules (`PER_HOST_RULES` in `src/alerts/evaluators.ts`) judge host 1 from its collectors and each enrolled agent host from its last report while it is under 35 s old (`AGENT_HOST_FRESH_MS`). A stale local collector takes only host 1 out; an open incident whose target is no longer observed resolves only if its host was judged in that tick, so a silent agent host's incidents stay as they are (and are hidden by `host.silent`). Docker states map to `online` (running), `launching` (restarting), `stopping` (removing), `errored` (dead) and `stopped` (exited, paused, created).
 - New rules (all in existing categories, no CHECK rebuild): `host.silent`, `host.probe_failed`, `monitor.backup_stale`, `host.auth_failures_high` (`backend-schema.md` section 8).
 - Grouping: `host.silent` suppresses every other incident with the same `host_id` except `host.probe_failed`. A failing probe while the agent reports points at the network, NAT or gateway.
 - `host.pending_reboot` uses `/run/reboot-required` on Linux.
@@ -650,11 +657,11 @@ A collector on the Windows backend, per host, configured on the Hosts page:
 
 | Step | Scope | Main tests |
 |---|---|---|
-| M1 (built) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
-| M2 | `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
+| M1 (merged, deployed, V26 passed) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
+| M2 (patches 0021 to 0023) | Migration `011` (`tls_certs` per host); `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
 | M3 | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
-| M4 | Migration `011`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
-| M5 | Migration `012`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |
+| M4 | Migration `012`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
+| M5 | Migration `013`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |
 | M6 | Host switcher everywhere, Hosts overview, per-host rule overrides, host in emails | Playwright with two hosts |
 
 ### 14.14 Open questions

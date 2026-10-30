@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  LOCAL_HOST_ID,
   serviceActionSchema,
   servicePatchSchema,
   spanLabel,
@@ -32,10 +33,14 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
   const admin = { preHandler: requireUser(ctx, { admin: true }) };
   const operate = { preHandler: requireUser(ctx, { operate: true }) };
 
-  app.get('/services', user, async (req): Promise<ServicesResponse> => {
-    const includeArchived = (req.query as { archived?: string }).archived === '1';
+  app.get('/services', user, async (req, reply): Promise<ServicesResponse | void> => {
+    const q = req.query as { archived?: string; host?: string };
+    const includeArchived = q.archived === '1';
+    // Host 1 by default, so the pages and scripts that predate phase 11 see what they saw before.
+    const host = q.host === undefined ? LOCAL_HOST_ID : q.host === 'all' ? 'all' : parseId(q.host);
+    if (host === null) return reply.code(400).send({ error: 'invalid_host' });
     return {
-      services: ctx.services.list(includeArchived).map((r) => ({
+      services: ctx.services.list(includeArchived, host).map((r) => ({
         ...ctx.services.toDto(r),
         process: ctx.state.getProcessState(r.id),
         git: r.git_repo ? ctx.git.badge(r.id) : null,
@@ -177,7 +182,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
       return reply.code(400).send({ error: 'invalid_request', message: 'Nothing to change.' });
     }
     try {
-      const after = ctx.services.update(before.id, patch, liveNames(ctx.state.getProcessStates()));
+      const after = ctx.services.update(before.id, patch, liveNames(ctx.state.getProcessStates(before.host_id)));
       if (patch.isArchived === true) ctx.alerts.onServiceArchived(before.id);
       if (patch.gitRepo !== undefined || patch.gitBranch !== undefined || patch.gitPath !== undefined) ctx.git.forget(before.id);
       ctx.audit.write({
