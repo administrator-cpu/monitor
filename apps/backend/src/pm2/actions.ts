@@ -1,4 +1,4 @@
-import type { ServiceAction, ServiceActionResponse } from '@cc/shared';
+import { LOCAL_HOST_ID, type ServiceAction, type ServiceActionResponse } from '@cc/shared';
 import type { AlertRepo } from '../alerts/repo';
 import type { Audit } from '../audit';
 import type { Pm2Link } from './link';
@@ -61,10 +61,12 @@ export class ServiceActions {
    * monitor never acts on itself: a restart would cut the request, and deploys manage it.
    */
   blockedReason(svc: ServiceRow, procs: Pm2Proc[] | null): string | null {
+    // Container services on agent hosts get their own action path in phase 11 M5.
+    if (svc.kind !== 'pm2' || svc.host_id !== LOCAL_HOST_ID) return 'Actions for services on other hosts are not available yet.';
     if (!this.d.link) return 'PM2 monitoring is switched off on the server.';
-    if (SELF_NAMES.has(svc.pm2_name.toLowerCase())) return 'The monitor cannot restart itself. It is updated by the deploy pipeline.';
+    if (SELF_NAMES.has(svc.source_key.toLowerCase())) return 'The monitor cannot restart itself. It is updated by the deploy pipeline.';
     if (procs) {
-      const mine = procs.filter((p) => p.name === svc.pm2_name);
+      const mine = procs.filter((p) => p.name === svc.source_key);
       if (mine.length === 0) return 'PM2 does not list this process.';
       if (mine.some((p) => p.isModule)) return 'This is a PM2 module, not a service.';
       const own = (this.d.ownPmId ?? envPmId)();
@@ -75,7 +77,7 @@ export class ServiceActions {
 
   async run(svc: ServiceRow, action: ServiceAction, actor: Actor): Promise<ServiceActionResponse> {
     const t0 = this.d.now();
-    const base = { serviceId: svc.id, pm2Name: svc.pm2_name, action };
+    const base = { serviceId: svc.id, pm2Name: svc.source_key, action };
     const fail = (e: ActionError, before?: string): never => {
       this.d.audit.write({
         event: 'service_action_failed',
@@ -108,7 +110,7 @@ export class ServiceActions {
       }
       const blocked = this.blockedReason(svc, procs);
       if (blocked) return fail(new ActionError(409, 'not_operable', blocked));
-      const mine = procs.filter((p) => p.name === svc.pm2_name);
+      const mine = procs.filter((p) => p.name === svc.source_key);
       before = mine.map((p) => p.status).join(',');
 
       if (action === 'start' && mine.every(isRunning)) return fail(new ActionError(409, 'already_running', 'This service is already running.'), before);
@@ -126,7 +128,7 @@ export class ServiceActions {
         return fail(new ActionError(502, 'pm2_failed', `PM2 refused the command: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200)), before);
       }
 
-      const status = await this.waitFor(link, svc.pm2_name, action);
+      const status = await this.waitFor(link, svc.source_key, action);
       let mutedMinutes = 0;
       if (action === 'stop') mutedMinutes = this.muteDown(svc, actor);
       else this.unmute(svc.id);

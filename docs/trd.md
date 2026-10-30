@@ -23,21 +23,21 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 
 | Component (section) | Status | Notes |
 |---|---|---|
-| Stack (2) | Built | PM2 hosts the backend (decision O1 pending) |
+| Stack (2) | Built | The backend runs as the Windows service `monitor-api` (O1, H9) |
 | Collectors (4.1) | Built | Auto-archive guard counts the monitor itself [Gap H2] |
-| State store (4.2) | Built | Single host today |
+| State store (4.2) | Built | One slice per host since phase 11 M1 (14.6) |
 | Log pipeline (4.3) | Built | Search range capped at `logs.retention_hours` (H3, fixed) |
 | Nginx (4.4) | Built | Top paths and IPs removed (H4, fixed) |
 | MongoDB (4.5) | Built | |
 | Application agent (4.6) | Built | |
 | API (4.7) | Built | |
 | WebSocket (4.8) | Built | |
-| Alert engine (4.9) | Built | 29 rules |
+| Alert engine (4.9) | Built | 30 rules (`host.silent` from `010`) |
 | Watchdog (4.10) | Built | One target |
 | Frontend (4.11) | Built | |
 | Deployment (10) | Built | Backups on `E:` (H7); offsite task and restore test [Verify] |
 | Parts 0, A, B, C (13) | Built | Merged in `e31724b` |
-| Multi-host (14) | Planned | Decisions of 2026-10-29 included |
+| Multi-host (14) | M1 built (patch 0016) | Hosts, enrollment, `/agent/v1`, Hosts page, `host.silent`; M2 to M6 planned |
 
 ### 0.2 Test evidence (run on `main` for v3)
 
@@ -50,12 +50,15 @@ v3 was written against the repository at `c00d968` (`main`). Sections 1 to 13 de
 | Frontend Playwright | Not rerun (needs a browser build) |
 | Integration helpers | `pm2:check`, `mongo:check`, `size:check`, `smoke:watchdog`, `demo` exist; not rerun |
 
+Phase 11 M1 (patch 0016, on `h1/repo-hygiene`): 434 backend tests pass with Nginx 1.24 installed (without Nginx its five configuration tests are skipped); 42 watchdog, 15 agent; typecheck clean; `next build` and 25 Playwright tests pass. `migration:check` on a 164 MB database shaped like eight days of production data: `010` in 0.06 s, every row kept.
+
 ### 0.3 Change log
 
 | Version | Date | Change |
 |---|---|---|
 | v1 | 2026-10-08 | Single Windows VPS, read-only, NSSM |
 | v2 | 2026-10-29 | Recorded the build, Parts 0 to C, proposed multi-host |
+| v3 | 2026-10-30 | Phase 11 M1 built: 14.3 and 14.6 as built, `host.silent` moved from M2 to M1 (14.13) |
 | v3 | 2026-10-29 | Facts from the code: port 4111, migrations `008` and `009`, webhook status codes, 10-minute email buckets, git flags, action codes. Gaps from the review marked [Gap]. Multi-host redesigned: host namespaces for the agent, an allowlisting Docker proxy without inspect, Caddy field filtering, relay and Mongo over the compose network, persistent agent state, agent-pulled remote actions, fingerprints that leave host 1 unchanged, migrations `010` to `012` |
 
 ---
@@ -527,6 +530,8 @@ Public, outside `/api/v1`, on the existing Fastify server, in its own scope: no 
 
 Audit: `host_created`, `host_updated`, `host_enrolled`, `host_token_rotated`, `host_revoked`, `agent_version_rejected`; remote actions add `service_action_requested` (14.7).
 
+**As built (M1).** `apps/backend/src/hosts/ingest.ts` and `src/hosts/repo.ts`; Hosts admin API under `/api/v1/hosts` (`src/routes/hosts.ts`). The checks run in this order: `Origin` (403), declared `Content-Length` above the endpoint limit (413), token (401), `X-Agent-Version` (400 when missing, 426 below `hosts.min_agent_version`), rate (429); then the body is read with the limit applied to the compressed bytes and again while inflating. Tokens are 32 random bytes in base64url; lookups use the SHA-256 hash, kept in memory. A host's `last_seen_at` is exact in memory and written at most once a minute. Metrics are stored at arrival time (backend-schema.md 13.6). Nginx removes the `Cookie` header on `/agent/` (`runbook-nginx.md`).
+
 ### 14.4 Docker access through `cc-docker-proxy`
 
 A small HAProxy image built in this repository, with a fixed allowlist. Anything not listed returns 403.
@@ -573,11 +578,11 @@ Client addresses read from `auth.log` and `fail2ban.log` are never stored or sen
 
 ### 14.6 Monitor side: hosts in the backend
 
-- `ServicesRepo` keys services by `(host_id, source_key)` instead of PM2 name; `source_key` is the PM2 name on host 1 and `<project>/<service>` on agent hosts.
-- The state store becomes `Map<hostId, HostSlice>`; host 1's slice is fed by the local collectors.
+- [Built, M1] `ServicesRepo` keys services by `(host_id, source_key)` instead of PM2 name; `source_key` is the PM2 name on host 1 and `<project>/<service>` on agent hosts. `list()` and `getByPm2Name()` mean host 1 unless another host or `'all'` is asked for, so the PM2, Nginx, GitHub and log-folder code is unchanged.
+- [Built, M1] The state store holds a `HostSlice` per host (`Map<hostId, HostSlice>`); host 1's slice is fed by the local collectors, an agent host's by its metrics. Processes are tagged with their host; `setProcesses` replaces one host's list only. Nginx, Mongo, TLS and Event Log state stay host 1 until M4.
 - Log folders: host 1 unchanged; other hosts under `LOG_ROOT\@<host name>\<project>.<service>\`.
 - `live` snapshots carry a host list plus the detail of the subscribed host, staying under 50 KB.
-- Rollup and retention group by host where the table has `host_id`.
+- [Built, M1] Rollup groups by host where the table has `host_id`; persistence writes `metrics_host` and `metrics_disk` per host; `GET /history/host?host=<id>` reads one host (host 1 by default).
 
 ### 14.7 Remote actions
 
@@ -645,8 +650,8 @@ A collector on the Windows backend, per host, configured on the Hosts page:
 
 | Step | Scope | Main tests |
 |---|---|---|
-| M1 | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/` | Migration on a production copy; existing tests unchanged; token, revocation, limits, gzip bomb, `Origin` |
-| M2 | `apps/node-agent` and `cc-docker-proxy`; host metrics; containers and events; `host.silent`; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
+| M1 (built) | Migration `010`; host-aware `ServicesRepo`, state store and fingerprints; enrollment and tokens; `/agent/v1/*` except commands; Hosts admin page; Nginx `/agent/`; `host.silent` | Migration on a production copy (V25); existing tests pass; token, revocation, limits, gzip bomb, `Origin` |
+| M2 | `apps/node-agent` and `cc-docker-proxy`; host metrics and host rules on agent hosts; containers and events; GHCR build; compose snippet; minimal host switcher | Fixture `/proc`, fake Docker API, proxy allowlist, two hosts in `pnpm demo` |
 | M3 | Log shipping, buffer, per-host search and tail, exclusions | Burst and drop counts, outage buffer |
 | M4 | Migration `011`; Mongo, Caddy filter, relay, backups, fail2ban and SSH counts, probes, watchdog `TARGETS` | Each collector against fixtures; no path or IP survives the Caddy filter |
 | M5 | Migration `012`; remote actions end to end | Expiry, refusal, own-container refusal, single use, permission, audit |

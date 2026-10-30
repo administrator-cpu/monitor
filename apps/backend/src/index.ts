@@ -76,9 +76,9 @@ export async function start(config: Config, opts: StartOptions = {}): Promise<Ru
             ctx.audit.write({
               event: 'service_updated',
               username: 'system',
-              detail: { serviceId: svc.id, pm2Name: svc.pm2_name, changed: ['isArchived'], auto: true, reason: 'not listed by PM2' },
+              detail: { serviceId: svc.id, pm2Name: svc.source_key, changed: ['isArchived'], auto: true, reason: 'not listed by PM2' },
             });
-            log.info({ service: svc.pm2_name }, 'service archived: PM2 no longer lists it');
+            log.info({ service: svc.source_key }, 'service archived: PM2 no longer lists it');
           },
         },
       }),

@@ -10,6 +10,7 @@ import type {
   ProcessStatus,
   ServiceSeries,
 } from '@cc/shared';
+import { LOCAL_HOST_ID, type AgentContainer } from '@cc/shared';
 import type { NginxWindow } from './nginx/aggregate';
 import type { StubSample } from './nginx/stub';
 import { AppStore } from './agent/store';
@@ -140,33 +141,18 @@ export const SERVICE_SERIES_CAPACITY = 360;
 export const HOST_SERIES_CAPACITY = 900;
 
 /**
- * In-memory snapshot of the latest values plus ring buffers. Collectors write
- * here; the WebSocket layer and REST routes only read, so cost does not grow
- * with the number of viewers.
+ * The host-level part of the live state for one host: CPU, memory, swap, network, uptime and disks,
+ * plus the 30-minute host series. Host 1's slice is fed by the local collectors; an agent host's
+ * slice by its metrics reports (one sample every 10 s).
  */
-export class StateStore {
+export class HostSlice {
   private cpuMem: CpuMemPart | null = null;
   private system: SystemPart | null = null;
   private disks: { at: number; list: DiskState[] } | null = null;
   private diskIo: { at: number; byVolume: Map<string, DiskIo> } | null = null;
   private readonly hostSeries = new RingBuffer<HostSample>(HOST_SERIES_CAPACITY);
-  private processes = new Map<number, { state: ProcessState; ring: RingBuffer<ProcSample> }>();
-  private processesAt: number | null = null;
-  private nginxStatus: { at: number; ok: boolean; error?: string } | null = null;
-  private nginxStatusRing = new RingBuffer<NginxStatusSample>(360);
-  private nginxWindows = new RingBuffer<NginxWindow>(180);
-  private nginxLog: {
-    at: number;
-    malformedLines: number;
-    linesTotal: number;
-    lastLineAt: number | null;
-  } | null = null;
-  private tlsCerts: TlsCertRow[] = [];
-  private mongo: MongoState | null = null;
-  private mongoRing = new RingBuffer<MongoSample>(360);
-  private eventLog: EventLogSummary | null = null;
-  /** Reports from the in-app agent (phase 8). */
-  readonly app = new AppStore();
+  /** Latest container list reported by an agent host (turned into services from M2). */
+  private containers: { at: number; list: AgentContainer[] } | null = null;
 
   /** Disk I/O older than this is reported as "not measured" rather than shown as current. */
   static readonly DISK_IO_FRESH_MS = 40_000;
@@ -195,78 +181,6 @@ export class StateStore {
   /** Host samples with `ts` in [from, to). */
   hostSamplesBetween(from: number, to: number): HostSample[] {
     return this.hostSeries.toArray().filter((x) => x.ts >= from && x.ts < to);
-  }
-
-  /** Replaces the process view and appends one sample per service to its 30-minute ring. */
-  setProcesses(list: ProcessState[], at: number): void {
-    const keep = new Set<number>();
-    for (const p of list) {
-      keep.add(p.serviceId);
-      let e = this.processes.get(p.serviceId);
-      if (!e) {
-        e = { state: p, ring: new RingBuffer<ProcSample>(SERVICE_SERIES_CAPACITY) };
-        this.processes.set(p.serviceId, e);
-      }
-      e.state = p;
-      e.ring.push({
-        ts: at,
-        status: p.status,
-        instances: p.instances,
-        cpuPct: p.cpuPct,
-        memBytes: p.memBytes,
-        restarts: p.restarts,
-        uptimeS: p.uptimeS,
-      });
-    }
-    // A service that was archived or renamed away leaves the live view; its ring is released.
-    for (const id of [...this.processes.keys()]) if (!keep.has(id)) this.processes.delete(id);
-    this.processesAt = at;
-  }
-
-  getProcessStates(): ProcessState[] {
-    return [...this.processes.values()].map((e) => e.state);
-  }
-
-  getProcessState(serviceId: number): ProcessState | null {
-    return this.processes.get(serviceId)?.state ?? null;
-  }
-
-  /** When the process list was last refreshed, null before the first PM2 answer. */
-  getProcessesAt(): number | null {
-    return this.processesAt;
-  }
-
-  /** Samples of one service with `ts` in [from, to). */
-  procSamplesBetween(serviceId: number, from: number, to: number): ProcSample[] {
-    const e = this.processes.get(serviceId);
-    return e ? e.ring.toArray().filter((x) => x.ts >= from && x.ts < to) : [];
-  }
-
-  /** Restart increments in the window ending at `now` (counter resets and decreases count as 0). */
-  restartsInWindow(serviceId: number, now: number, windowMs: number): number {
-    const e = this.processes.get(serviceId);
-    if (!e) return 0;
-    let total = 0;
-    let prev: number | null = null;
-    for (const x of e.ring.toArray()) {
-      if (x.ts < now - windowMs) {
-        prev = x.restarts;
-        continue;
-      }
-      if (prev !== null && x.restarts > prev) total += x.restarts - prev;
-      prev = x.restarts;
-    }
-    return total;
-  }
-
-  getServiceSeries(serviceId: number): ServiceSeries {
-    const e = this.processes.get(serviceId);
-    const s = e ? e.ring.toArray() : [];
-    return {
-      ts: s.map((x) => Math.round(x.ts / 1000)),
-      cpuPct: s.map((x) => x.cpuPct),
-      memBytes: s.map((x) => x.memBytes),
-    };
   }
 
   /** Freshest usage reading for the volume that holds `root` (drive letter on Windows). */
@@ -308,7 +222,7 @@ export class StateStore {
 
   private mergedDisks(at: number): DiskState[] {
     const list = this.disks?.list ?? [];
-    const io = this.diskIo && at - this.diskIo.at <= StateStore.DISK_IO_FRESH_MS ? this.diskIo : null;
+    const io = this.diskIo && at - this.diskIo.at <= HostSlice.DISK_IO_FRESH_MS ? this.diskIo : null;
     if (!io) return list;
     return list.map((d) => {
       const r = io.byVolume.get(d.volume);
@@ -321,6 +235,196 @@ export class StateStore {
     return this.disks;
   }
 
+  setContainers(list: AgentContainer[], at: number): void {
+    this.containers = { at, list };
+  }
+
+  getContainersAt(): { at: number; list: AgentContainer[] } | null {
+    return this.containers;
+  }
+
+  /** Series in seconds-since-epoch, the layout uPlot consumes directly. */
+  getHostSeries(): HostSeries {
+    const s = this.hostSeries.toArray();
+    return {
+      ts: s.map((x) => Math.round(x.ts / 1000)),
+      cpuPct: s.map((x) => x.cpuPct),
+      memPct: s.map((x) => x.memPct),
+      netRxBps: s.map((x) => x.netRxBps),
+      netTxBps: s.map((x) => x.netTxBps),
+    };
+  }
+}
+
+/**
+ * In-memory snapshot of the latest values plus ring buffers. Collectors write
+ * here; the WebSocket layer and REST routes only read, so cost does not grow
+ * with the number of viewers.
+ */
+export class StateStore {
+  /** Host 1 (this server) is always present; agent hosts are added as they report. */
+  private readonly slices = new Map<number, HostSlice>([[LOCAL_HOST_ID, new HostSlice()]]);
+  private processes = new Map<number, { hostId: number; state: ProcessState; ring: RingBuffer<ProcSample> }>();
+  private processesAt = new Map<number, number>();
+  private nginxStatus: { at: number; ok: boolean; error?: string } | null = null;
+  private nginxStatusRing = new RingBuffer<NginxStatusSample>(360);
+  private nginxWindows = new RingBuffer<NginxWindow>(180);
+  private nginxLog: {
+    at: number;
+    malformedLines: number;
+    linesTotal: number;
+    lastLineAt: number | null;
+  } | null = null;
+  private tlsCerts: TlsCertRow[] = [];
+  private mongo: MongoState | null = null;
+  private mongoRing = new RingBuffer<MongoSample>(360);
+  private eventLog: EventLogSummary | null = null;
+  /** Reports from the in-app agent (phase 8). */
+  readonly app = new AppStore();
+
+  /** Host 1, fed by the local collectors. */
+  get local(): HostSlice {
+    return this.slices.get(LOCAL_HOST_ID)!;
+  }
+
+  /** The slice of an agent host, created on its first report. */
+  ensureHost(hostId: number): HostSlice {
+    let h = this.slices.get(hostId);
+    if (!h) {
+      h = new HostSlice();
+      this.slices.set(hostId, h);
+    }
+    return h;
+  }
+
+  host(hostId: number): HostSlice | undefined {
+    return this.slices.get(hostId);
+  }
+
+  hostIds(): number[] {
+    return [...this.slices.keys()].sort((a, b) => a - b);
+  }
+
+  /** A revoked host leaves the live view; its stored history stays. Host 1 is never dropped. */
+  dropHost(hostId: number): void {
+    if (hostId === LOCAL_HOST_ID) return;
+    this.slices.delete(hostId);
+    for (const [id, e] of this.processes) if (e.hostId === hostId) this.processes.delete(id);
+    this.processesAt.delete(hostId);
+  }
+
+  setCpuMem(part: CpuMemPart): void {
+    this.local.setCpuMem(part);
+  }
+
+  /** Per-volume read/write rates from the disk I/O collector (Windows). */
+  setDiskIo(byVolume: Map<string, DiskIo>, at: number): void {
+    this.local.setDiskIo(byVolume, at);
+  }
+
+  /** Host samples with `ts` in [from, to). */
+  hostSamplesBetween(from: number, to: number): HostSample[] {
+    return this.local.hostSamplesBetween(from, to);
+  }
+
+  /**
+   * Replaces one host's process view (PM2 on host 1, containers on an agent host from M2) and
+   * appends one sample per service to its 30-minute ring. Other hosts' entries are left alone.
+   */
+  setProcesses(list: ProcessState[], at: number, hostId: number = LOCAL_HOST_ID): void {
+    const keep = new Set<number>();
+    for (const p of list) {
+      keep.add(p.serviceId);
+      let e = this.processes.get(p.serviceId);
+      if (!e) {
+        e = { hostId, state: p, ring: new RingBuffer<ProcSample>(SERVICE_SERIES_CAPACITY) };
+        this.processes.set(p.serviceId, e);
+      }
+      e.state = p;
+      e.ring.push({
+        ts: at,
+        status: p.status,
+        instances: p.instances,
+        cpuPct: p.cpuPct,
+        memBytes: p.memBytes,
+        restarts: p.restarts,
+        uptimeS: p.uptimeS,
+      });
+    }
+    // A service that was archived or renamed away leaves the live view; its ring is released.
+    for (const [id, e] of [...this.processes]) if (e.hostId === hostId && !keep.has(id)) this.processes.delete(id);
+    this.processesAt.set(hostId, at);
+  }
+
+  /** Host 1's processes unless another host, or 'all', is asked for. */
+  getProcessStates(hostId: number | 'all' = LOCAL_HOST_ID): ProcessState[] {
+    return [...this.processes.values()].filter((e) => hostId === 'all' || e.hostId === hostId).map((e) => e.state);
+  }
+
+  getProcessState(serviceId: number): ProcessState | null {
+    return this.processes.get(serviceId)?.state ?? null;
+  }
+
+  /** When a host's process list was last refreshed, null before the first answer (PM2 on host 1). */
+  getProcessesAt(hostId: number = LOCAL_HOST_ID): number | null {
+    return this.processesAt.get(hostId) ?? null;
+  }
+
+  /** Samples of one service with `ts` in [from, to). */
+  procSamplesBetween(serviceId: number, from: number, to: number): ProcSample[] {
+    const e = this.processes.get(serviceId);
+    return e ? e.ring.toArray().filter((x) => x.ts >= from && x.ts < to) : [];
+  }
+
+  /** Restart increments in the window ending at `now` (counter resets and decreases count as 0). */
+  restartsInWindow(serviceId: number, now: number, windowMs: number): number {
+    const e = this.processes.get(serviceId);
+    if (!e) return 0;
+    let total = 0;
+    let prev: number | null = null;
+    for (const x of e.ring.toArray()) {
+      if (x.ts < now - windowMs) {
+        prev = x.restarts;
+        continue;
+      }
+      if (prev !== null && x.restarts > prev) total += x.restarts - prev;
+      prev = x.restarts;
+    }
+    return total;
+  }
+
+  getServiceSeries(serviceId: number): ServiceSeries {
+    const e = this.processes.get(serviceId);
+    const s = e ? e.ring.toArray() : [];
+    return {
+      ts: s.map((x) => Math.round(x.ts / 1000)),
+      cpuPct: s.map((x) => x.cpuPct),
+      memBytes: s.map((x) => x.memBytes),
+    };
+  }
+
+  /** Freshest usage reading for the volume that holds `root` (drive letter on Windows). */
+  diskUsedPctFor(root: string): number | null {
+    return this.local.diskUsedPctFor(root);
+  }
+
+  setSystem(part: SystemPart): void {
+    this.local.setSystem(part);
+  }
+
+  setDisks(list: DiskState[], at: number): void {
+    this.local.setDisks(list, at);
+  }
+
+  /** Null until the first CPU/memory sample, so the UI never shows invented zeros. */
+  getHost(): HostState | null {
+    return this.local.getHost();
+  }
+
+  /** Latest disk usage as reported by the disk collector, with its sample time. */
+  getDisksAt(): { at: number; list: DiskState[] } | null {
+    return this.local.getDisksAt();
+  }
 
   // --- nginx (phase 6) -------------------------------------------------------
 
@@ -504,15 +608,9 @@ export class StateStore {
     return this.tlsCerts;
   }
 
+
   /** Series in seconds-since-epoch, the layout uPlot consumes directly. */
   getHostSeries(): HostSeries {
-    const s = this.hostSeries.toArray();
-    return {
-      ts: s.map((x) => Math.round(x.ts / 1000)),
-      cpuPct: s.map((x) => x.cpuPct),
-      memPct: s.map((x) => x.memPct),
-      netRxBps: s.map((x) => x.netRxBps),
-      netTxBps: s.map((x) => x.netTxBps),
-    };
+    return this.local.getHostSeries();
   }
 }

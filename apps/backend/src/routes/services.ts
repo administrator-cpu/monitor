@@ -186,7 +186,7 @@ export function serviceRoutes(app: FastifyInstance, ctx: AppContext): void {
         username: actor.username,
         ip: req.ip,
         userAgent: req.headers['user-agent'],
-        detail: { serviceId: before.id, pm2Name: before.pm2_name, changed: Object.keys(patch) },
+        detail: { serviceId: before.id, pm2Name: before.source_key, changed: Object.keys(patch) },
       });
       return { service: ctx.services.toDto(after) };
     } catch (e) {

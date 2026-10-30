@@ -24,7 +24,7 @@ Every data structure the backend owns: SQLite tables, log files, in-memory shape
 | `007_events.sql` | `windows_events` | Built |
 | `008_github.sql` | `services.git_repo`, `git_branch`, `git_path`; `service_git` | Built |
 | `009_email.sql` | `email_event_counts`, `email_webhook_seen`, rule `monitor.email_bounce_spike` | Built |
-| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Planned (M1) |
+| `010_hosts.sql` | `hosts`, `services` rebuild, `host_id` columns, rule `host.silent` | Built (patch 0016, not yet merged); production copy check V25 |
 | `011_remote_checks.sql` | Probes, host check metrics, three rules | Planned (M4) |
 | `012_agent_commands.sql` | Remote action queue | Planned (M5) |
 
@@ -36,6 +36,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 |---|---|---|
 | v1 | 2026-10-08 | Migrations `001` to `007` |
 | v2 | 2026-10-29 | Proposed `008` and `009` |
+| v3 | 2026-10-30 | `010` built (phase 11 M1): sections 13.1 to 13.3 as written; phase 11 settings use the prefix `hosts.`; `tls_certs` keeps `host` as its primary key until M2 (13.3); payload notes in 13.6 |
 | v3 | 2026-10-29 | `008` and `009` recorded from the repository. All "verify against the code" items resolved. Multi-host as `010` to `012`: `services` rebuilt with `host_id`, `kind`, `source_key`, `log_excluded`; host-scoped fingerprints that leave host 1 unchanged; payloads without container inspect; remote action queue |
 
 ---
@@ -46,7 +47,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 - Booleans are `INTEGER` 0 or 1 with CHECK.
 - `INTEGER PRIMARY KEY` ids; JSON in `TEXT`.
 - Metric tables are prefixed `metrics_`, carry `res_s` (10 or 60), are mostly `WITHOUT ROWID`, and have no foreign keys.
-- [Planned] Per-host tables carry `host_id INTEGER NOT NULL DEFAULT 1`. In metric tables it is checked by the application, not by a foreign key.
+- [Built, `010`] Per-host tables carry `host_id INTEGER NOT NULL DEFAULT 1`. In metric tables it is checked by the application, not by a foreign key.
 
 ---
 
@@ -68,7 +69,7 @@ v2 described one migration `008` for GitHub and email and a multi-host `009`. Th
 
 Automatic events are written with `user_id = NULL` and `username = 'system'` (for example auto-archive).
 
-Audit events added since v1: `service_updated` (also git mapping and auto-archive), `service_action`, `service_action_failed`. [Planned] `service_action_requested`, `host_created`, `host_updated`, `host_enrolled`, `host_token_rotated`, `host_revoked`, `agent_version_rejected`.
+Audit events added since v1: `service_updated` (also git mapping and auto-archive), `service_action`, `service_action_failed`; `host_created`, `host_updated`, `host_enrolled`, `host_token_rotated`, `host_revoked`, `agent_version_rejected` (phase 11 M1). [Planned] `service_action_requested` (M5).
 
 ### 3.2 Settings, services, tenants [Built]
 
@@ -87,7 +88,7 @@ Audit events added since v1: `service_updated` (also git mapping and auto-archiv
 | `is_archived` | Set by auto-archive or an admin; cleared by rediscovery |
 | `git_repo`, `git_branch` (`NOT NULL DEFAULT 'main'`), `git_path` | From `008` |
 
-No table has a foreign key to `services`. [Planned] Rebuilt in `010` (13.2).
+No table has a foreign key to `services`. Rebuilt in `010` (13.2): `pm2_name` is now `source_key`, with `host_id`, `kind` and `log_excluded`; names and keys are unique per host.
 
 `tenants(tenant_key UNIQUE, display_name, first_seen_at, last_seen_at)`.
 
@@ -96,7 +97,7 @@ No table has a foreign key to `services`. [Planned] Rebuilt in `010` (13.2).
 `metrics_host(res_s, ts, cpu_pct, cpu_max_core_pct, mem_*, swap_*, net_rx_bps, net_tx_bps, uptime_s, pending_reboot)`, PK `(res_s, ts)`.
 `metrics_disk(volume, res_s, ts, used_bytes, total_bytes, read_bps, write_bps)`, PK `(volume, res_s, ts)`. `volume` is a drive letter on Windows and a mount point on Linux. Optical volumes and `DISK_EXCLUDE` entries are never written.
 
-[Planned] Both rebuilt with `host_id` in the primary key (13.3).
+Both rebuilt with `host_id` in the primary key in `010` (13.3).
 
 ### 3.4 Processes [Built]
 
@@ -114,7 +115,7 @@ No table has a foreign key to `services`. [Planned] Rebuilt in `010` (13.2).
 
 ### 3.7 MongoDB [Built]
 
-`metrics_mongo` PK `(res_s, ts)`; `mongo_slow_queries` with namespace, op, millis, plan summary, counts, app name, and a command shape of field names only. [Planned] `host_id` on both.
+`metrics_mongo` PK `(res_s, ts)`; `mongo_slow_queries` with namespace, op, millis, plan summary, counts, app name, and a command shape of field names only. `host_id` on both since `010`.
 
 ### 3.8 Windows Event Log [Built]
 
@@ -256,7 +257,7 @@ The state store becomes `Map<hostId, HostSlice>` with `{ host, disks, services, 
 
 Behavior added by Parts 0 and C: a Stop mutes `pm2.service_down` for that service; an archived service's incidents close quietly; a volume no longer reported resolves its disk incidents.
 
-### 8.2 Added in phase 11 [Planned]
+### 8.2 Added in phase 11 (`host.silent` built in M1, the rest planned)
 
 | Key | Category | Condition | Threshold | Duration | Severity | Migration |
 |---|---|---|---|---|---|---|
@@ -265,7 +266,7 @@ Behavior added by Parts 0 and C: a Stop mutes `pm2.service_down` for that servic
 | `monitor.backup_stale` | monitor | Newest local backup, or last offsite marker, older than threshold; targets `local` and `offsite` | 26 h | 0 | warning | `011` |
 | `host.auth_failures_high` | host | Failed SSH logins in the last hour | 300 | 0 | warning, **disabled** by default | `011` |
 
-- `host.silent` applies only to agent hosts. It suppresses every incident with the same `host_id` except `host.probe_failed`.
+- `host.silent` applies only to enrolled, not revoked agent hosts. It turns active 30 s after the host's last request and opens after its 120 s duration; it suppresses every incident with the same `host_id` except `host.probe_failed`. Revoking a host ends its open incidents without email. Fingerprint `host.silent:@<id>/`.
 - Existing rules apply per host; `pm2.*` cover containers; `nginx.5xx_rate` and the certificate rules cover Caddy.
 - `params.overrides` keys: PM2 name on host 1 (unchanged); `@<host id>/<source key>` on other hosts.
 - `host.pending_reboot`'s description changes from "A Windows reboot" to "A reboot".
@@ -298,7 +299,7 @@ History and tenant history accept a range of at most `retention.metrics_days` (H
 
 ### 9.2 Rollup [Built]
 
-Hourly; 10 s rows older than `retention.metrics_raw_hours` become 60 s rows; one transaction per table; safe to run twice. [Planned] Groups by `host_id` where present.
+Hourly; 10 s rows older than `retention.metrics_raw_hours` become 60 s rows; one transaction per table; safe to run twice. Groups by `host_id` where present (`010`).
 
 ### 9.3 Size
 
@@ -336,16 +337,18 @@ Defaults live in `apps/backend/src/settings.ts`; only admin edits are stored.
 | `agent.max_tenants_per_report` | 50 | Not read by any code yet; hidden on the Settings page |
 | `nginx.top_n` | — | Removed with H4; a stored row is ignored |
 | `mongo.slow_ms` | 100 | Not read by any code yet; hidden on the Settings page |
+| `hosts.min_agent_version` | none | Lowest node agent version accepted, as `1.2.3`; older agents get 426 (phase 11 M1). Section "Remote hosts" |
+| `hosts.enroll_minutes` | 60 | Enrollment token lifetime, 5 to 1440 (phase 11 M1) |
+
+The phase 11 keys were planned as `agent.min_version` and `agent.enroll_minutes`. `agent.` is hidden on the Settings page for the unread `agent.max_tenants_per_report`, and the page's sections are by prefix, so they use `hosts.`.
 
 [Planned]
 
 | Key | Default | Meaning |
 |---|---|---|
-| `agent.min_version` | none | Lowest node agent version accepted (text) |
-| `agent.log_lines_per_s` | 200 | Per-container log limit sent to agents |
-| `agent.enroll_minutes` | 60 | Enrollment token lifetime |
-| `commands.ttl_seconds` | 60 | Remote action expiry |
-| `probes.interval_seconds` | 60 | Outside-in probe interval |
+| `hosts.log_lines_per_s` | 200 | Per-container log limit sent to agents (M3) |
+| `commands.ttl_seconds` | 60 | Remote action expiry (M5) |
+| `probes.interval_seconds` | 60 | Outside-in probe interval (M4) |
 
 Boot-time values and secrets stay in the environment (`trd.md` section 9).
 
@@ -399,7 +402,7 @@ Not stored: recipients, subjects, bodies, tags, message ids. Both tables are pru
 
 ---
 
-## 13. Migrations `010` to `012` and Agent Payloads [Planned]
+## 13. Migrations `010` to `012` and Agent Payloads (`010` built, `011` and `012` planned)
 
 Each migration runs in the runner's single transaction with `foreign_keys = ON`. That is safe for the `services` rebuild because no table references `services` by foreign key. The column lists below must be checked against the live schema before merge (`PRAGMA table_info`), and each migration is timed on a copy of the production database.
 
@@ -502,6 +505,8 @@ ALTER TABLE metrics_host_new RENAME TO metrics_host;
 If the copy takes too long on the production copy, the migration may instead drop the old metric rows (history is disposable); that choice is recorded in the pull request.
 
 `010` also seeds rule `host.silent`.
+
+As built: the rebuilds copy every row (no history is dropped); on a 164 MB database shaped like eight days of production data `010` took 0.06 s, because the rebuilt tables are the small host-level ones. `tls_certs` keeps `host` as its primary key; the TLS collector reads, writes and prunes only `host_id = 1`. It must become `(host_id, host)` before another host's certificates are stored (M4; noted under M2 in the plan).
 
 ### 13.4 `011_remote_checks.sql`
 
@@ -629,7 +634,9 @@ Response `{ "hostId": 2, "hostName": "ubuntu-acs", "token": "…" }`. The host n
 
 `state` is `done`, `failed` or `refused`. A result for an unknown, expired or finished command is answered 409 and ignored.
 
-**Responses:** 200 or 204 on success; 400 invalid body; 401 bad, missing or revoked token; 403 request carried an `Origin` header; 409 command conflict; 413 too large (compressed or decompressed); 426 agent too old; 429 rate limited with `Retry-After`.
+**Responses:** 200 or 204 on success; 400 invalid body (or a missing `X-Agent-Version`); 401 bad, missing or revoked token, and for `enroll` an unknown, used (`enroll_token_invalid`) or expired (`enroll_token_expired`) token; 403 request carried an `Origin` header; 409 command conflict; 413 too large (compressed or decompressed); 415 not `application/json` or an encoding other than gzip; 426 agent too old; 429 rate limited with `Retry-After`. Refused values are never echoed: a 400 names only the field paths.
+
+**As built in M1:** every schema is strict (unknown fields 400). `metrics` is stored at arrival time: the snapshot is taken just before sending, and a late or skewed agent clock would otherwise put rows into 10 s buckets that were already written; the agent's `ts` is only compared, and a skew over 5 minutes is stored in `hosts.clock_skew_ms` and shown on the Hosts page. The `host` section feeds the host's live slice and `metrics_host`, `metrics_disk`; `containers` is kept as the host's latest list. `mongo`, `gateway` and `checks` are checked for shape and not yet stored (M4). `logs`, `events` and `app` are validated, authenticated and counted per host, and stored from M3, M2 and M4. `enroll` also answers 400 `os_mismatch` when the agent's `os` is not the host's, and 426 before using up the token when the agent is too old.
 
 ### 13.7 Counts
 

@@ -17,7 +17,8 @@ The specification lives in `docs/`. These are the current versions (v3, 2026-10-
 | [`docs/plan-pm2-github-resend.md`](docs/plan-pm2-github-resend.md) | Design and decisions D1 to D10 for Parts 0, A, B, C |
 | `docs/runbook-phase1.md`, `runbook-phase3-5.md`, `runbook-phase6-9.md` | Server setup per phase |
 | `docs/runbook-backups.md` | Nightly, pre-deploy and offsite backups; restore test and restore |
-| `docs/runbook-nginx.md` | Nginx in front of `monitor-api`: rate limits (H8) and the outside port scan |
+| `docs/runbook-nginx.md` | Nginx in front of `monitor-api`: rate limits (H8), the `/agent/` location (phase 11) and the outside port scan |
+| `docs/runbook-hosts.md` | Phase 11 M1 on the server: migration `010` on a copy, checks after the deploy, going back |
 
 ## Status
 
@@ -34,7 +35,7 @@ The specification lives in `docs/`. These are the current versions (v3, 2026-10-
 | 9. History, search, correlation | Built | `src/rollup.ts`, `src/history.ts`, `src/logs/search*.ts`, migration `007_events` |
 | 10. Parts 0, A, B, C | Built | Auto-archive and disk filtering; `src/github`, migration `008_github`; `src/email`, `routes/webhooks.ts`, migration `009_email`; `src/pm2/actions.ts` |
 | 10.5. Audit fixes H1 to H9 | In progress | `docs/implementation-plan.md` |
-| 11. Multi-host (Ubuntu VPS through an agent) | Planned | `docs/implementation-plan.md`, `docs/trd.md` section 14 |
+| 11. Multi-host (Ubuntu VPS through an agent) | M1 built: hosts, enrollment, `/agent/v1`, Admin → Hosts, `host.silent` | `src/hosts`, `src/routes/hosts.ts`, migration `010_hosts`; `docs/implementation-plan.md`, `docs/trd.md` section 14 |
 
 **Actions exist.** Admins, and engineers an admin has marked "Can operate", can restart, stop and start PM2 services from the service page (`POST /api/v1/services/:id/actions`). The target is resolved on the server from the service id, `monitor-api` itself and PM2 modules are refused, one action runs per service at a time with a 10-second cooldown, and every attempt is audited. There is no TOTP; see decision O3 in `docs/prd.md`.
 

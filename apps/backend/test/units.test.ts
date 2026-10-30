@@ -94,11 +94,11 @@ describe('passwordPolicyError', () => {
 describe('migrations', () => {
   it('apply once, are idempotent and seed the reserved service row', () => {
     const db = openDb(':memory:');
-    expect(migrate(db).applied).toEqual(['001_init.sql', '002_pm2.sql', '003_alerts.sql', '004_nginx.sql', '005_mongo.sql', '006_agent.sql', '007_events.sql', '008_github.sql', '009_email.sql']);
+    expect(migrate(db).applied).toEqual(['001_init.sql', '002_pm2.sql', '003_alerts.sql', '004_nginx.sql', '005_mongo.sql', '006_agent.sql', '007_events.sql', '008_github.sql', '009_email.sql', '010_hosts.sql']);
     expect(migrate(db).applied).toEqual([]);
     const svc = db.prepare('SELECT id, name FROM services WHERE id = 0').get();
     expect(svc).toEqual({ id: 0, name: '_unattributed' });
-    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }]);
     const mode = db.pragma('foreign_keys', { simple: true });
     expect(mode).toBe(1);
   });

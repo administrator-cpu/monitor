@@ -37,6 +37,7 @@ describe.skipIf(!nginxBin)('Nginx configuration in the runbook (H8)', () => {
   let base = '';
   let stub: http.Server;
   let started = false;
+  const seen: { url: string; cookie: string | undefined }[] = [];
 
   const conf = () => path.join(dir, 'nginx.conf');
   const nginx = (...args: string[]) =>
@@ -45,6 +46,7 @@ describe.skipIf(!nginxBin)('Nginx configuration in the runbook (H8)', () => {
   beforeAll(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-nginx-'));
     stub = http.createServer((req, res) => {
+      seen.push({ url: req.url ?? '', cookie: req.headers.cookie });
       req.resume();
       req.on('end', () => {
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -67,6 +69,10 @@ describe.skipIf(!nginxBin)('Nginx configuration in the runbook (H8)', () => {
       .replaceAll('127.0.0.1:4111', `127.0.0.1:${backend}`);
     const tmp = path.join(dir, 'tmp');
     fs.mkdirSync(tmp);
+    // Bodies above the in-memory buffer go to this folder; when the test runs as root, Nginx's
+    // workers run as an unprivileged user and need to write here.
+    fs.chmodSync(dir, 0o755);
+    fs.chmodSync(tmp, 0o777);
     fs.writeFileSync(
       conf(),
       `worker_processes 1;
@@ -129,6 +135,18 @@ ${local}
     const statuses: number[] = [];
     for (let i = 0; i < 64; i++) statuses.push((await hit('/webhooks/resend', { body: '{}' })).status);
     expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(60);
+    expect(statuses.at(-1)).toBe(429);
+  });
+
+  it('passes agent requests on without cookies, refuses bodies over 2 MB, and limits after the burst', async () => {
+    const ok = await hit('/agent/v1/metrics', { body: '{}', headers: { cookie: 'cc_session=abc', authorization: 'Bearer x' } });
+    expect(ok.status).toBe(200);
+    expect(seen.filter((s) => s.url === '/agent/v1/metrics').at(-1)?.cookie).toBeUndefined();
+    expect((await hit('/agent/v1/logs', { body: 'x'.repeat(1_500_000) })).status).toBe(200); // gzip batches stay well below
+    expect((await hit('/agent/v1/logs', { body: 'x'.repeat(2_200_000) })).status).toBe(413);
+    const statuses: number[] = [];
+    for (let i = 0; i < 110; i++) statuses.push((await hit('/agent/v1/events', { body: '{}' })).status);
+    expect(statuses.filter((s) => s === 200).length).toBeGreaterThanOrEqual(100);
     expect(statuses.at(-1)).toBe(429);
   });
 

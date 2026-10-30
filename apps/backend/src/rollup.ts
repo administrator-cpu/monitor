@@ -22,7 +22,7 @@ export interface TableSpec {
 export const ROLLUP_TABLES: TableSpec[] = [
   {
     table: 'metrics_host',
-    keys: [],
+    keys: ['host_id'],
     cols: {
       cpu_pct: 'avg', cpu_max_core_pct: 'max', mem_used_bytes: 'avg_int', mem_total_bytes: 'last',
       swap_used_bytes: 'avg_int', swap_total_bytes: 'last', net_rx_bps: 'avg', net_tx_bps: 'avg',
@@ -31,7 +31,7 @@ export const ROLLUP_TABLES: TableSpec[] = [
   },
   {
     table: 'metrics_disk',
-    keys: ['volume'],
+    keys: ['host_id', 'volume'],
     cols: { used_bytes: 'avg_int', total_bytes: 'last', read_bps: 'avg', write_bps: 'avg' },
   },
   {
@@ -51,7 +51,7 @@ export const ROLLUP_TABLES: TableSpec[] = [
   },
   {
     table: 'metrics_mongo',
-    keys: [],
+    keys: ['host_id'],
     cols: {
       up: 'min', ping_ms: 'avg', conn_current: 'avg_int', conn_available: 'avg_int', op_insert_ps: 'avg',
       op_query_ps: 'avg', op_update_ps: 'avg', op_delete_ps: 'avg', op_getmore_ps: 'avg', op_command_ps: 'avg',

@@ -40,8 +40,8 @@ v2 used "Delivered" for Parts 0, A, B and C. They are in `main` since 2026-10-09
 | Part A | GitHub read-only code status per service | Built (`e31724b`) | `github.test.ts` |
 | Part B | Resend delivery counts and bounce alert | Built (`e31724b`) | `email.test.ts` |
 | Part C | Restart, stop, start of PM2 services with `can_operate` | Built (`e31724b`) | `actions.test.ts` |
-| Audit fixes (H1 to H9) | Gaps found in the v3 review | Planned | `implementation-plan.md` phase 10.5 |
-| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | Planned | Section 16 |
+| Audit fixes (H1 to H9) | Gaps found in the v3 review | Merged (PRs #3 to #8); server steps open | `implementation-plan.md` phase 10.5 |
+| Multi-host (M1 to M6) | Ubuntu VPS monitored through an agent, remote actions | In progress: M1 code done (patch 0016), M2 to M6 planned | Section 16; `hosts.test.ts` |
 | TOTP, alert channels other than email | | Not started | Section 11 |
 
 Test run on `main` for v3: 364 backend, 42 watchdog and 15 agent tests pass; the typecheck of all packages is clean.
@@ -144,7 +144,7 @@ Public routes outside `/api/v1`:
 |---|---|---|---|
 | `GET /health` | Watchdog | Shallow, rate limited | Built |
 | `POST /webhooks/resend` | Resend | Svix signature, timestamp window, rate limit | Built |
-| `/agent/v1/*` | Remote agents | Per-host token, size and rate limits, `Origin` refused | Planned |
+| `/agent/v1/*` | Remote agents | Per-host token, size and rate limits, `Origin` refused | Built (M1); data stored for metrics, logs and events from M2 and M3 |
 
 ### 3.2 Data flow
 
@@ -278,7 +278,7 @@ Password login is the only barrier on the public API. Behind it are raw logs and
 
 Emails carry only operational facts: host, service, what happened, the value, the time and a dashboard link. Never log lines, emails, tokens or user data.
 
-29 rules are seeded today (28 from phase 4 plus `monitor.email_bounce_spike`). Phase 11 adds four (section 16.7). Thresholds and durations are editable by admins; per-service overrides exist.
+30 rules are seeded (28 from phase 4, `monitor.email_bounce_spike`, and `host.silent` from phase 11 M1). Phase 11 adds three more (section 16.7). Thresholds and durations are editable by admins; per-service overrides exist.
 
 Noise control: sustained duration before firing, one email per incident, reminders, resolved email after hysteresis, symptom grouping (service down hides its app and 5xx alerts; crash loop hides service down; critical hides warning for disks and certificates; host silent hides that host's other alerts except the outside-in probe), maintenance mutes, and a 30-minute mute after a Stop from the dashboard.
 
@@ -431,7 +431,7 @@ Environment: `GITHUB_TOKEN`, `RESEND_WEBHOOK_SECRET`, `DISK_EXCLUDE`. Settings (
 
 ---
 
-## 16. Multi-Host Monitoring (Planned)
+## 16. Multi-Host Monitoring (In progress: M1 built)
 
 ### 16.1 Need
 
@@ -504,8 +504,8 @@ From the Windows VPS every 60 s: TCP to `acs.thediv.in` on 7547, 443 and 80, and
 
 | Step | Scope | Days |
 |---|---|---|
-| M1 | Migration `010`, hosts, enrollment, `/agent/v1/*`, Hosts admin UI, Nginx route | 4 to 5 |
-| M2 | Agent and proxy: host metrics, containers, events, `host.silent`, image in GHCR | 4 to 5 |
+| M1 | Migration `010`, hosts, enrollment, `/agent/v1/*`, Hosts admin UI, Nginx route, `host.silent` (code done, patch 0016) | 4 to 5 |
+| M2 | Agent and proxy: host metrics, containers, events, image in GHCR | 4 to 5 |
 | M3 | Log shipping, per-host search and tail | 2 to 3 |
 | M4 | Mongo, Caddy, relay, backups, fail2ban and SSH counts, probes, watchdog targets | 4 to 5 |
 | M5 | Remote actions | 3 to 4 |

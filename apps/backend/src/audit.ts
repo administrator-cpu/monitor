@@ -24,7 +24,14 @@ export type AuditEvent =
   | 'log_tail_opened'
   | 'service_updated'
   | 'service_action'
-  | 'service_action_failed';
+  | 'service_action_failed'
+  // Remote hosts (phase 11)
+  | 'host_created'
+  | 'host_updated'
+  | 'host_enrolled'
+  | 'host_token_rotated'
+  | 'host_revoked'
+  | 'agent_version_rejected';
 
 export interface AuditInput {
   event: AuditEvent;

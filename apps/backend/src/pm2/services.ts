@@ -1,10 +1,13 @@
-import type { ServiceDto } from '@cc/shared';
+import { LOCAL_HOST_ID, type ServiceDto, type ServiceKind } from '@cc/shared';
 import type { Db } from '../db';
 
 export interface ServiceRow {
   id: number;
+  host_id: number;
+  kind: ServiceKind;
   name: string;
-  pm2_name: string;
+  /** The PM2 name on host 1; `<project>/<service>` for a container on an agent host. */
+  source_key: string;
   nginx_match: string | null;
   public_url: string | null;
   agent_enabled: number;
@@ -15,7 +18,10 @@ export interface ServiceRow {
   git_repo: string | null;
   git_branch: string;
   git_path: string | null;
+  log_excluded: number;
 }
+
+const keyOf = (hostId: number, sourceKey: string): string => `${hostId}\u0000${sourceKey}`;
 
 export class ServiceConflictError extends Error {
   constructor(public readonly code: 'name_taken' | 'service_active') {
@@ -26,9 +32,12 @@ export class ServiceConflictError extends Error {
 /** Last-seen is written at most this often per service. */
 const TOUCH_EVERY_MS = 60_000;
 
-/** The `services` table plus an in-memory index by PM2 name. Services are never created by hand. */
+/**
+ * The `services` table plus an in-memory index by (host, source key). Services are never created
+ * by hand: PM2 discovers them on host 1, an agent's container list on other hosts (M2).
+ */
 export class ServicesRepo {
-  private byPm2 = new Map<string, ServiceRow>();
+  private byKey = new Map<string, ServiceRow>();
   private touched = new Map<number, number>();
 
   constructor(
@@ -40,55 +49,72 @@ export class ServicesRepo {
   }
 
   reload(): void {
-    this.byPm2.clear();
+    this.byKey.clear();
     for (const r of this.db.prepare('SELECT * FROM services WHERE id > 0').all() as ServiceRow[]) {
-      this.byPm2.set(r.pm2_name, r);
+      this.byKey.set(keyOf(r.host_id, r.source_key), r);
     }
   }
 
+  private put(r: ServiceRow): void {
+    this.byKey.set(keyOf(r.host_id, r.source_key), r);
+  }
+
   get(id: number): ServiceRow | undefined {
-    for (const r of this.byPm2.values()) if (r.id === id) return r;
+    for (const r of this.byKey.values()) if (r.id === id) return r;
     return undefined;
   }
 
-  getByPm2Name(name: string): ServiceRow | undefined {
-    return this.byPm2.get(name);
+  getBySource(hostId: number, sourceKey: string): ServiceRow | undefined {
+    return this.byKey.get(keyOf(hostId, sourceKey));
   }
 
-  list(includeArchived = false): ServiceRow[] {
-    return [...this.byPm2.values()]
-      .filter((r) => includeArchived || r.is_archived === 0)
-      .sort((a, b) => a.name.localeCompare(b.name));
+  /** A PM2 process on host 1. */
+  getByPm2Name(name: string): ServiceRow | undefined {
+    const r = this.getBySource(LOCAL_HOST_ID, name);
+    return r?.kind === 'pm2' ? r : undefined;
   }
 
   /**
-   * Registers a PM2 process name the first time it is seen and records every later sighting.
-   * An archived service that PM2 lists again becomes active again.
+   * Services of one host, host 1 unless asked otherwise, so every caller that predates phase 11
+   * (PM2, Nginx, GitHub, log folders) keeps seeing exactly the services it saw before.
    */
-  discover(pm2Name: string): ServiceRow {
+  list(includeArchived = false, hostId: number | 'all' = LOCAL_HOST_ID): ServiceRow[] {
+    return [...this.byKey.values()]
+      .filter((r) => (hostId === 'all' || r.host_id === hostId) && (includeArchived || r.is_archived === 0))
+      .sort((a, b) => a.host_id - b.host_id || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Registers a source key the first time it is seen and records every later sighting. Without
+   * options this is a PM2 process on host 1. An archived service that is listed again becomes
+   * active again.
+   */
+  discover(sourceKey: string, opts: { hostId?: number; kind?: 'pm2' | 'container' } = {}): ServiceRow {
+    const hostId = opts.hostId ?? LOCAL_HOST_ID;
+    const kind = opts.kind ?? 'pm2';
     const t = this.now();
-    let row = this.byPm2.get(pm2Name);
+    let row = this.getBySource(hostId, sourceKey);
     if (!row) {
-      const name = this.freeName(pm2Name);
+      const name = this.freeName(hostId, kind === 'container' ? sourceKey.slice(sourceKey.indexOf('/') + 1) : sourceKey);
       const info = this.db
         .prepare(
-          `INSERT INTO services (name, pm2_name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)`,
+          `INSERT INTO services (host_id, kind, name, source_key, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
         )
-        .run(name, pm2Name, t, t);
+        .run(hostId, kind, name, sourceKey, t, t);
       row = this.db.prepare('SELECT * FROM services WHERE id = ?').get(info.lastInsertRowid) as ServiceRow;
-      this.byPm2.set(pm2Name, row);
+      this.put(row);
       this.touched.set(row.id, t);
       return row;
     }
     if (row.is_archived === 1) {
       this.db.prepare('UPDATE services SET is_archived = 0, last_seen_at = ? WHERE id = ?').run(t, row.id);
       row = { ...row, is_archived: 0, last_seen_at: t };
-      this.byPm2.set(pm2Name, row);
+      this.put(row);
       this.touched.set(row.id, t);
     } else if (t - (this.touched.get(row.id) ?? 0) >= TOUCH_EVERY_MS) {
       this.db.prepare('UPDATE services SET last_seen_at = ? WHERE id = ?').run(t, row.id);
       row = { ...row, last_seen_at: t };
-      this.byPm2.set(pm2Name, row);
+      this.put(row);
       this.touched.set(row.id, t);
     }
     return row;
@@ -99,12 +125,12 @@ export class ServicesRepo {
     const row = this.get(id);
     if (!row || row.agent_enabled === 1) return;
     this.db.prepare('UPDATE services SET agent_enabled = 1 WHERE id = ?').run(id);
-    this.byPm2.set(row.pm2_name, { ...row, agent_enabled: 1 });
+    this.put({ ...row, agent_enabled: 1 });
   }
 
-  /** The display name starts as the PM2 name; if an admin already uses it, a suffix is added. */
-  private freeName(base: string): string {
-    const taken = new Set([...this.byPm2.values()].map((r) => r.name.toLowerCase()));
+  /** The display name starts as the source name; if that host already uses it, a suffix is added. */
+  private freeName(hostId: number, base: string): string {
+    const taken = new Set(this.list(true, hostId).map((r) => r.name.toLowerCase()));
     if (!taken.has(base.toLowerCase()) && base !== '_unattributed') return base;
     for (let i = 2; i < 1000; i++) {
       const candidate = `${base} (${i})`;
@@ -129,12 +155,12 @@ export class ServicesRepo {
   ): ServiceRow {
     const row = this.get(id);
     if (!row) throw new Error('not_found');
-    if (patch.isArchived === true && livePm2Names.has(row.pm2_name)) {
+    if (patch.isArchived === true && row.host_id === LOCAL_HOST_ID && livePm2Names.has(row.source_key)) {
       // Archiving something PM2 still runs would be undone by the next discovery cycle.
       throw new ServiceConflictError('service_active');
     }
     if (patch.name !== undefined) {
-      const clash = [...this.byPm2.values()].find(
+      const clash = this.list(true, row.host_id).find(
         (r) => r.id !== id && r.name.toLowerCase() === patch.name!.toLowerCase(),
       );
       if (clash || patch.name === '_unattributed') throw new ServiceConflictError('name_taken');
@@ -156,7 +182,7 @@ export class ServicesRepo {
       )
       .run(next.name, next.public_url, next.nginx_match, next.notes, next.is_archived, next.git_repo, next.git_branch, next.git_path, id);
     const updated = { ...row, ...next };
-    this.byPm2.set(row.pm2_name, updated);
+    this.put(updated);
     return updated;
   }
 
@@ -164,8 +190,11 @@ export class ServicesRepo {
     const staleMs = this.staleHours() * 3_600_000;
     return {
       id: r.id,
+      hostId: r.host_id,
+      kind: r.kind,
+      sourceKey: r.source_key,
       name: r.name,
-      pm2Name: r.pm2_name,
+      pm2Name: r.source_key,
       nginxMatch: r.nginx_match,
       publicUrl: r.public_url,
       agentEnabled: r.agent_enabled === 1,

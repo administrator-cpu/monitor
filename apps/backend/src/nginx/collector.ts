@@ -144,7 +144,7 @@ export function tlsCollector(d: {
   const now = d.now ?? Date.now;
   const check = d.check ?? ((h: string) => checkCert(h));
   const load = (): TlsCertRow[] =>
-    (d.db.prepare('SELECT host, not_after, issuer, checked_at, last_error FROM tls_certs ORDER BY host').all() as {
+    (d.db.prepare('SELECT host, not_after, issuer, checked_at, last_error FROM tls_certs WHERE host_id = 1 ORDER BY host').all() as {
       host: string;
       not_after: number | null;
       issuer: string | null;
@@ -178,10 +178,10 @@ export function tlsCollector(d: {
       }
       if (hosts.length > 0) {
         d.db
-          .prepare(`DELETE FROM tls_certs WHERE host NOT IN (${hosts.map(() => '?').join(',')})`)
+          .prepare(`DELETE FROM tls_certs WHERE host_id = 1 AND host NOT IN (${hosts.map(() => '?').join(',')})`)
           .run(...hosts);
       } else {
-        d.db.prepare('DELETE FROM tls_certs').run();
+        d.db.prepare('DELETE FROM tls_certs WHERE host_id = 1').run();
       }
       d.state.setTlsCerts(load());
     },

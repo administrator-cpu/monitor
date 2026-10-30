@@ -1,4 +1,4 @@
-# Runbook: Nginx in front of monitor-api (H8)
+# Runbook: Nginx in front of monitor-api (H8, phase 11 M1)
 
 The current reference for the Nginx configuration on the Windows VPS. The configuration itself lives only on the server (for example `C:\nginx\conf\nginx.conf`); this file is what it should contain for `monitor-api.thediv.in`. The blocks below were checked with `nginx -t` and a burst test against Nginx 1.24, and `apps/backend/test/nginx-config.test.ts` repeats both checks in CI wherever `nginx` is installed.
 
@@ -9,6 +9,7 @@ The current reference for the Nginx configuration on the Windows VPS. The config
 | `/api/v1/auth/` | 30 per minute, 10 at once | 429, JSON | Password guessing (done before H8) |
 | `/webhooks/` | 120 per minute, 60 at once; body at most 256 KB (413 above) | 429 | Resend sends small bodies and retries a 429 later. The app has the same 120 per minute; Nginx stops a flood before Node reads it |
 | `POST /api/v1/logs/search` | 6 per minute, 5 at once; CORS preflights (`OPTIONS`) not counted | 429, JSON | Each search reads hour files on `E:`. The app also allows one running search per user |
+| `/agent/` (phase 11) | 1200 per minute, 100 at once; body at most 2 MB (413 above); cookies removed; 60 s read timeout | 429 | Agents on other hosts. The app allows 600 per minute per host token and checks each body again after inflating gzip (512 KB for metrics, 4 MB for logs). The command long-poll of M5 holds a request for up to 25 s |
 
 The JSON body is `{"error":"rate_limited","message":"Too many requests. Wait a minute and try again."}`, the shape the dashboard already shows for its own errors. It carries `Access-Control-Allow-Origin: https://monitor.thediv.in` and `Access-Control-Allow-Credentials: true`, because the dashboard calls the API from another origin and the browser would otherwise hide the answer and report a network error. If the dashboard's address changes, change it there too.
 
@@ -28,6 +29,8 @@ map $request_method $cc_search_key {
     default $binary_remote_addr;
 }
 limit_req_zone $cc_search_key zone=logsearch:10m rate=6r/m;
+# Phase 11: agents on other hosts (one address per host).
+limit_req_zone $binary_remote_addr zone=agents:10m rate=1200r/m;
 ```
 
 The `server` block for `monitor-api.thediv.in`. Keep your existing `listen`, `server_name` and certificate lines; replace the `location` blocks with these:
@@ -71,6 +74,22 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Phase 11: agents on other hosts. They send gzip bodies with a bearer token; no browser ever
+    # calls this path (the app refuses any request with an Origin header). Cookies are removed
+    # before the request reaches the app. 60 s covers the 25 s command long-poll (M5).
+    location /agent/ {
+        limit_req zone=agents burst=100 nodelay;
+        limit_req_status 429;
+        client_max_body_size 2m;
+        proxy_pass http://127.0.0.1:4111;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Cookie "";
+        proxy_read_timeout 60s;
+    }
+
     # The answer when the auth or search limit is hit. The dashboard calls the API from another
     # origin; without these headers the browser hides the 429 and the page shows a network error.
     location @cc_too_many {
@@ -96,7 +115,7 @@ server {
 
 ## 3. Applying it on the server
 
-1. Copy the current file first: `Copy-Item C:\nginx\conf\nginx.conf C:\nginx\conf\nginx.conf.before-h8`.
+1. Copy the current file first: `Copy-Item C:\nginx\conf\nginx.conf C:\nginx\conf\nginx.conf.before-h8` (for the phase 11 step, `.before-m1`).
 2. Edit `nginx.conf` as in section 2.
 3. Test, then reload (from the Nginx folder, as the account that runs Nginx):
    ```powershell
@@ -111,6 +130,12 @@ server {
    ```
    Expected: six answers from the app (403, because the test sends no dashboard header), then `429 429`. Wait a minute before searching in the dashboard: this used up your allowance. Then open Logs in the dashboard and run one search: it works as before.
 5. Resend: Email page counts keep rising after the next sent mail. A Resend test event (V5) still arrives.
+6. Phase 11 (`/agent/`), from your own computer:
+   ```powershell
+   curl.exe -s -o NUL -w "%{http_code}\n" -X POST https://monitor-api.thediv.in/agent/v1/metrics
+   curl.exe -s -o NUL -w "%{http_code}\n" -X POST -H "Origin: https://example.com" https://monitor-api.thediv.in/agent/v1/metrics
+   ```
+   Expected: `401` (no token), then `403` (a browser Origin). A `404` means the backend with phase 11 M1 is not deployed yet; a `502` that Nginx cannot reach it.
 
 To undo: copy `nginx.conf.before-h8` back, `.\nginx.exe -t`, `.\nginx.exe -s reload`.
 

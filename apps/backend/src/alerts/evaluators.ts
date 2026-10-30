@@ -1,4 +1,4 @@
-import { AGENT_FRESH_MS, type CollectorStatus, type LogStatus } from '@cc/shared';
+import { AGENT_FRESH_MS, LOCAL_HOST_ID, type CollectorStatus, type LogStatus } from '@cc/shared';
 import type { StateStore } from '../state';
 import { parseOverrides, type RuleRow } from './rules';
 
@@ -12,6 +12,16 @@ export interface Observation {
   summary: string;
   /** The summary describes a moving value (days left): keep it current while the incident is open. */
   refresh?: boolean;
+  /** The host the observation is about; host 1 (this server) when left out. */
+  hostId?: number;
+}
+
+/** An enrolled agent host as the `host.silent` rule sees it. */
+export interface AgentHostView {
+  id: number;
+  name: string;
+  /** Last authenticated request; the enrollment time before the first report. */
+  lastSeenAt: number | null;
 }
 
 export interface EvalContext {
@@ -23,6 +33,8 @@ export interface EvalContext {
   email: () => { consecutiveFailures: number };
   agentEnabled: (serviceId: number) => boolean;
   emailBadSince: (since: number) => number;
+  /** Enrolled, not revoked agent hosts (phase 11). */
+  agentHosts: () => AgentHostView[];
 }
 
 /** `null` means "cannot evaluate right now": open incidents keep their state. */
@@ -30,6 +42,18 @@ export type Evaluator = (rule: RuleRow, c: EvalContext) => Observation[] | null;
 
 export const fingerprintOf = (ruleKey: string, target: string): string =>
   target === '' ? ruleKey : `${ruleKey}:${target}`;
+
+/**
+ * Host-scoped targets (volumes, certificates, Mongo, collectors, the host itself) on hosts other
+ * than 1 are prefixed `@<host id>/`, so `host.disk_high:@2//` is the root volume of host 2. Host 1
+ * keeps its exact fingerprints, so open incidents survive the upgrade (backend-schema.md 8.3).
+ * Service targets need no prefix: service ids are unique across hosts.
+ */
+export const hostTarget = (hostId: number, target: string): string =>
+  hostId === LOCAL_HOST_ID ? target : `@${hostId}/${target}`;
+
+/** A host is "silent" to the evaluator after this long; the rule's duration then applies on top. */
+export const HOST_SILENT_GRACE_MS = 30_000;
 
 /** Rules stop being evaluated while any of these collectors is stale: stale data is not evidence. */
 export const REQUIRED_COLLECTORS: Record<string, string[]> = {
@@ -120,6 +144,26 @@ export function createEvaluators(): Record<string, Evaluator> {
   let lastDropped: number | null = null;
 
   return {
+    // An enrolled agent host that stopped sending requests. Never-enrolled and revoked hosts are not
+    // judged. Opens after HOST_SILENT_GRACE_MS + the rule's duration (default 30 s + 120 s).
+    'host.silent': (_rule, c) =>
+      c.agentHosts().map((h) => {
+        const silentMs = h.lastSeenAt === null ? Number.POSITIVE_INFINITY : c.now - h.lastSeenAt;
+        const mins = Math.max(1, Math.round(silentMs / 60_000));
+        return {
+          target: hostTarget(h.id, ''),
+          serviceId: null,
+          hostId: h.id,
+          active: silentMs > HOST_SILENT_GRACE_MS,
+          value: null,
+          refresh: true,
+          summary:
+            h.lastSeenAt === null
+              ? `Host ${h.name} has not contacted the monitor since it enrolled`
+              : `Host ${h.name} has not contacted the monitor for ${Number.isFinite(silentMs) ? `${mins} minute${mins === 1 ? '' : 's'}` : 'a long time'}`,
+        };
+      }),
+
     'host.disk_high': diskRule,
     'host.disk_critical': diskRule,
 

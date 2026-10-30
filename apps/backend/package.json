@@ -14,6 +14,7 @@
     "pm2:check": "tsx scripts/pm2-integration.ts",
     "mongo:check": "tsx scripts/mongo-check.ts",
     "size:check": "tsx scripts/size-check.ts",
+    "migration:check": "tsx scripts/migration-check.ts",
     "demo": "tsx scripts/demo-server.ts"
   },
   "optionalDependencies": {

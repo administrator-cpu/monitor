@@ -93,24 +93,27 @@ export class Persistence {
     if (end <= from) return 0;
     const host = this.db.prepare(
       `INSERT OR REPLACE INTO metrics_host
-       (res_s, ts, cpu_pct, cpu_max_core_pct, mem_used_bytes, mem_total_bytes, swap_used_bytes,
+       (host_id, res_s, ts, cpu_pct, cpu_max_core_pct, mem_used_bytes, mem_total_bytes, swap_used_bytes,
         swap_total_bytes, net_rx_bps, net_tx_bps, uptime_s, pending_reboot)
-       VALUES (10, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, 10, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const proc = this.db.prepare(
       `INSERT OR REPLACE INTO metrics_process
        (service_id, res_s, ts, status, instances, cpu_pct, mem_bytes, restarts, uptime_s)
        VALUES (?, 10, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    const current = this.state.getHost();
-    const services = this.state.getProcessStates();
+    // Every host with a live slice: host 1 from the local collectors, agent hosts from their reports.
+    const hosts = this.state.hostIds().map((id) => ({ id, slice: this.state.host(id)!, current: this.state.host(id)!.getHost() }));
+    const services = this.state.getProcessStates('all');
     let rows = 0;
 
     for (let b = from; b < end; b += BUCKET_MS) {
-      const hs = this.state.hostSamplesBetween(b, b + BUCKET_MS);
-      if (hs.length > 0) {
+      for (const { id: hostId, slice, current } of hosts) {
+        const hs = slice.hostSamplesBetween(b, b + BUCKET_MS);
+        if (hs.length === 0) continue;
         const lastS = last(hs);
         host.run(
+          hostId,
           b,
           avg(hs.map((x) => x.cpuPct)),
           Math.max(...hs.map((x) => x.maxCorePct)),
@@ -300,18 +303,23 @@ export class Persistence {
     return rows;
   }
 
-  /** Disk rows are written for the newest bucket only, and only from a fresh disk reading. */
+  /** Disk rows are written for the newest bucket only, and only from a fresh disk reading, per host. */
   private writeDisks(end: number): number {
-    const d = this.state.getDisksAt();
-    const host = this.state.getHost();
-    if (!d || !host || end - d.at > 3 * 10_000 + BUCKET_MS) return 0;
     const ts = end - BUCKET_MS;
     const stmt = this.db.prepare(
-      `INSERT OR REPLACE INTO metrics_disk (volume, res_s, ts, used_bytes, total_bytes, read_bps, write_bps)
-       VALUES (?, 10, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO metrics_disk (host_id, volume, res_s, ts, used_bytes, total_bytes, read_bps, write_bps)
+       VALUES (?, ?, 10, ?, ?, ?, ?, ?)`,
     );
-    for (const x of host.disks) stmt.run(x.volume, ts, x.usedBytes, x.totalBytes, x.readBps, x.writeBps);
-    return host.disks.length;
+    let rows = 0;
+    for (const hostId of this.state.hostIds()) {
+      const slice = this.state.host(hostId)!;
+      const d = slice.getDisksAt();
+      const host = slice.getHost();
+      if (!d || !host || end - d.at > 3 * 10_000 + BUCKET_MS) continue;
+      for (const x of host.disks) stmt.run(hostId, x.volume, ts, x.usedBytes, x.totalBytes, x.readBps, x.writeBps);
+      rows += host.disks.length;
+    }
+    return rows;
   }
 
   private writeEvents(events: ReturnType<ProcessEvents['peek']>): number {
