@@ -332,9 +332,9 @@ Defaults live in `apps/backend/src/settings.ts`; only admin edits are stored.
 | `pm2.auto_archive_minutes` | 15 | 0 turns it off |
 | `github.poll_minutes` | 5 | 1–1440 |
 | `actions.stop_mute_minutes` | 30 | 0 turns it off |
-| `agent.max_tenants_per_report` | 50 | |
+| `agent.max_tenants_per_report` | 50 | Not read by any code yet; hidden on the Settings page |
 | `nginx.top_n` | — | Removed with H4; a stored row is ignored |
-| `mongo.slow_ms` | 100 | |
+| `mongo.slow_ms` | 100 | Not read by any code yet; hidden on the Settings page |
 
 [Planned]
 

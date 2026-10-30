@@ -128,6 +128,17 @@ test('settings are editable, validated and resettable', async ({ page }) => {
   await expect(page.getByTestId('setting-alert.reminder_minutes').getByLabel('alert.reminder_minutes')).toHaveValue('60');
 });
 
+test('settings page shows the GitHub and dashboard action settings, not unused ones', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/admin/settings');
+  await expect(page.getByRole('region', { name: 'GitHub' }).getByTestId('setting-github.poll_minutes')).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Dashboard actions' }).getByTestId('setting-actions.stop_mute_minutes'),
+  ).toBeVisible();
+  await expect(page.getByTestId('setting-mongo.slow_ms')).toHaveCount(0);
+  await expect(page.getByTestId('setting-agent.max_tenants_per_report')).toHaveCount(0);
+});
+
 test('a running service cannot be archived', async ({ page }) => {
   await signIn(page);
   await page.getByTestId('svc-chatty').click({ timeout: 30_000 });

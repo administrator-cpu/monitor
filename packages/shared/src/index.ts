@@ -383,6 +383,44 @@ export interface SettingEntry {
   integer?: boolean;
 }
 
+/**
+ * Sections of the Settings page, in order, by key prefix. Keys under HIDDEN_SETTING_PREFIXES are
+ * defined on the server but read by nothing yet, so the page leaves them out. Any other key that
+ * matches no prefix is shown under "Other" rather than dropped (backend test `settings-groups`).
+ */
+export const SETTING_GROUPS: readonly (readonly [prefix: string, title: string])[] = [
+  ['alert.', 'Alert email'],
+  ['logs.', 'Logs'],
+  ['retention.', 'Retention'],
+  ['backup.', 'Backups'],
+  ['pm2.', 'Services'],
+  ['actions.', 'Dashboard actions'],
+  ['github.', 'GitHub'],
+  ['session.', 'Sessions'],
+  ['login.', 'Sign-in protection'],
+];
+
+export const HIDDEN_SETTING_PREFIXES: readonly string[] = ['agent.', 'mongo.'];
+
+export const OTHER_SETTINGS_TITLE = 'Other';
+
+/** Splits settings into the page's sections; empty sections are left out, list settings too. */
+export function groupSettings<T extends Pick<SettingEntry, 'key' | 'type'>>(
+  settings: readonly T[],
+): { prefix: string; title: string; rows: T[] }[] {
+  const shown = settings.filter(
+    (s) => s.type !== 'list' && !HIDDEN_SETTING_PREFIXES.some((p) => s.key.startsWith(p)),
+  );
+  const out = SETTING_GROUPS.map(([prefix, title]) => ({
+    prefix,
+    title,
+    rows: shown.filter((s) => s.key.startsWith(prefix)),
+  }));
+  const rest = shown.filter((s) => !SETTING_GROUPS.some(([p]) => s.key.startsWith(p)));
+  out.push({ prefix: '', title: OTHER_SETTINGS_TITLE, rows: rest });
+  return out.filter((g) => g.rows.length > 0);
+}
+
 export interface ApiErrorBody {
   error: string;
   message?: string;
