@@ -43,7 +43,10 @@ const TAIL_AUDIT_EVERY_MS = 5 * 60_000;
 type HubCtx = Pick<
   AppContext,
   'state' | 'scheduler' | 'sessions' | 'audit' | 'now' | 'log' | 'logs' | 'services' | 'alerts'
->;
+> & {
+  /** Set by createContext right after the hub; optional so tests can build a hub without it. */
+  health?: AppContext['health'];
+};
 
 /**
  * Pushes one shared snapshot to every subscribed browser, and fans log lines out to the browsers
@@ -104,6 +107,7 @@ export class LiveHub {
       collectors: this.ctx.scheduler.status(),
       logs: this.ctx.logs.status(),
       openIncidents: this.ctx.alerts.openCount(),
+      monitor: this.ctx.health?.snapshot(),
     };
   }
 

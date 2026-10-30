@@ -649,6 +649,21 @@ pre.detail {
   padding: 12px;
 }
 
+/* ---- overview summary row ---- */
+.grid.summary {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+.summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.small {
+  font-size: 0.82rem;
+}
+
 /* ---- services ---- */
 .svc-grid {
   display: grid;

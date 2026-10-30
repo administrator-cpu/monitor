@@ -183,7 +183,7 @@ Search accepts a range of at most `logs.retention_hours` (H3, fixed; it accepted
 
 ## 5. In-Memory Shapes [Built]
 
-Defined in `packages/shared/src/index.ts`. Relevant today: `HostState`, `DiskState` (`readBps`, `writeBps` nullable), `ProcessState` (`serviceId`, `name`, `pm2Name`, status `online | launching | stopping | stopped | errored`, instances, CPU, memory, restarts, uptime, `lastExit`), `NginxState` (no top lists since H4), `MongoState`, `AppState`, `CollectorStatus`, `LogStatus`, `ServiceDto` (includes `gitRepo`, `gitBranch`, `gitPath`, `stale`), `UserDto` (includes `canOperate`), git status DTO, `ServiceActionResponse` (`ok`, `action`, `status`, `verified`, `mutedMinutes`).
+Defined in `packages/shared/src/index.ts`. Relevant today: `HostState`, `DiskState` (`readBps`, `writeBps` nullable), `ProcessState` (`serviceId`, `name`, `pm2Name`, status `online | launching | stopping | stopped | errored`, instances, CPU, memory, restarts, uptime, `lastExit`), `NginxState` (no top lists since H4), `MongoState`, `AppState`, `CollectorStatus`, `LogStatus`, `ServiceDto` (includes `gitRepo`, `gitBranch`, `gitPath`, `stale`), `UserDto` (includes `canOperate`), git status DTO, `ServiceActionResponse` (`ok`, `action`, `status`, `verified`, `mutedMinutes`), `MonitorHealth` (with `runsAs` and `deployedSha` since H9), `OverviewSummary` (`GET /overview/summary`: `alerts`, `backup` from `maintenance_runs`, `tls`, `github` from `service_git`, `email` from `email_event_counts` over 24 hours).
 
 [Planned] additions:
 
@@ -196,6 +196,7 @@ interface HostSummary {
   status: HostStatus; agentVersion: string | null; lastSeenAt: number | null;
   actions: 'on' | 'off' | null;          // reported by the agent; null for host 1
   openIncidents: number;
+  monitor?: MonitorHealth;   // the monitor's own process, for the Overview card (2026-10-30)
 }
 
 // ProcessState and ServiceDto gain:
